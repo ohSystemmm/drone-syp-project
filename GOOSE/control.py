@@ -26,13 +26,19 @@ def get_keyboard_input():
     if keys[pygame.K_d]:
         lr = speed
     if keys[pygame.K_e]:
-        ud = speed
+        if not tello.is_flying:
+            tello.takeoff()
+        else:
+            ud = speed  # Go up if already in the air
     if keys[pygame.K_q]:
         ud = -speed
     if keys[pygame.K_RIGHT]:
         yv = yaw_rate
     if keys[pygame.K_LEFT]:
         yv = -yaw_rate
+    if keys[pygame.K_LCTRL+pygame.K_q]:
+        if tello.is_flying:
+            tello.land()
 
     return [lr, fb, ud, yv]
 
