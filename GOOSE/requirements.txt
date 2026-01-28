@@ -1,0 +1,5 @@
+robomaster>=0.1.1.68
+numpy
+opencv-python
+djitellopy
+netifaces
