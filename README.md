@@ -1,6 +1,6 @@
 # 🪿 G.O.O.S.E.
 
-**G**arbage **O**perating **O**n **S**hit **E**lectroncis
+**G**arbage **O**perating **O**n **S**hit **E**lectronics
 
 Welcome to the official repository for **Project Horizon**. This software is a specialized application designed to interface with the **DJI RoboMaster TT (Tello Talent)**. Developed at **HTL Saalfelden** for the 2025-2026 academic year, this project focuses on advanced control, telemetry, and autonomous flight maneuvers.
 
