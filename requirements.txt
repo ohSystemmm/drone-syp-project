@@ -1,5 +1,5 @@
-robomaster
 numpy
 opencv-python
 djitellopy
-netifaces
+pygame
+kivy
