@@ -1,0 +1,15 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+
+<TopBar@RelativeLayout>:
+    canvas.before:
+        Color:
+            rgba: utils.get_color_from_hex('#c5c5c5')
+        Rectangle:
+            size: self.size
+
+FloatLayout:
+    TopBar:
+        id: header
+        size_hint: 1, 0.1
+        pos_hint: {"right": 1, "top": 1}
