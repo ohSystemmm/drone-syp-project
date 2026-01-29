@@ -1,4 +1,4 @@
-robomaster>=0.1.1.68
+robomaster
 numpy
 opencv-python
 djitellopy
