@@ -1,0 +1,38 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+#:set margin 10
+
+<Divider@Widget>:
+    size_hint_x: None
+    width: 2 
+    canvas:
+        Color:
+            rgba: (1, 1, 1, 0.1)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<VerticalDivider@Widget>:
+    size_hint_x: None
+    width: 2
+    canvas:
+        Color:
+            rgba: (1, 1, 1, 0.1)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<RoundedButton@Button>:
+    background_normal: ''
+    background_color: (0,0,0,0)
+    btn_color: (0, 0.7, 1, 1)
+    text_color: (1, 1, 1, 1)
+    color: self.text_color
+    
+    canvas.before:
+        Color:
+            rgba: self.btn_color
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [10, 10, 10, 10]

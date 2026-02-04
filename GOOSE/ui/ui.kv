@@ -1,15 +1,50 @@
 #:kivy 2.0.0
 #:import utils kivy.utils
+#:set margin 10
 
-<TopBar@RelativeLayout>:
-    canvas.before:
-        Color:
-            rgba: utils.get_color_from_hex('#c5c5c5')
-        Rectangle:
-            size: self.size
+#:include kv/shared.kv
+#:include kv/top_bar.kv
+#:include kv/stats.kv
+#:include kv/bottom_bar.kv
+#:include kv/modules.kv
 
 FloatLayout:
+    canvas.before:
+        Rectangle: 
+            pos: self.pos
+            size: self.size
+            source: "example-background/example.png" 
+
     TopBar:
         id: header
-        size_hint: 1, 0.1
-        pos_hint: {"right": 1, "top": 1}
+        size_hint: 1, 0.08
+        pos_hint: {"top": 1}
+
+    Stats:
+        id: stats_area
+        size_hint: 0.16, 1
+        pos_hint: {"right": 1, "center_y": 0.5}
+
+    Label:
+        text: "R RECORDING 00:00:00"
+        font_size: '12sp'
+        bold: True
+        color: (0.9, 0.9, 0.9, 1)
+        
+        size_hint: None, None
+        size: self.texture_size[0] + 30, 30
+
+        pos_hint: {"center_x": 0.5, "y": 0.13} 
+        
+        canvas.before:
+            Color:
+                rgba: (20/255, 20/255, 20/255, 0.8)
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [15, 15, 15, 15]
+
+    Bottom:
+        id: footer
+        size_hint: 0.4, 0.1
+        pos_hint: {"center_x": 0.5, "y": 0.02}

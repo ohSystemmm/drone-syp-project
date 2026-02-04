@@ -1,0 +1,46 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+#:set margin 10
+
+
+<Bottom>:
+    canvas:
+        Color:
+            rgba: (30/255, 35/255, 40/255, 0.9)
+        RoundedRectangle:
+            pos: (self.x + margin, self.y + margin)
+            size: (self.width - (2 * margin), self.height - (2 * margin))
+            radius: [18, 18, 18, 18]
+            
+    BoxLayout:
+        pos: (root.x + margin, root.y + margin)
+        size: (root.width - 2*margin, root.height - 2*margin)
+        padding: 8
+        spacing: 8
+
+        RoundedButton:
+            text: "CAM"
+            btn_color: (50/255, 55/255, 60/255, 1) 
+            size_hint_x: None
+            width: self.height
+
+        Divider:
+            size_hint_y: 0.6
+            pos_hint: {"center_y": 0.5}
+
+        RoundedButton:
+            text: "TAKE OFF"
+            btn_color: (0/255, 160/255, 230/255, 1)
+            bold: True
+            font_size: '18sp'
+
+        Divider:
+            size_hint_y: 0.6
+            pos_hint: {"center_y": 0.5}
+
+        RoundedButton:
+            text: "REC"
+            btn_color: (60/255, 40/255, 40/255, 1) 
+            text_color: (1, 0.3, 0.3, 1)
+            size_hint_x: None
+            width: self.height
