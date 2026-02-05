@@ -2,18 +2,18 @@
 #:import utils kivy.utils
 #:set margin 10
 
-#:include kv/shared.kv
-#:include kv/top_bar.kv
-#:include kv/stats.kv
-#:include kv/bottom_bar.kv
-#:include kv/modules.kv
+#:include ui/kv/top_bar.kv
+#:include ui/kv/stats.kv
+#:include ui/kv/bottom_bar.kv
+#:include ui/kv/modules.kv
+#:include ui/kv/shared.kv
 
 FloatLayout:
     canvas.before:
         Rectangle: 
             pos: self.pos
             size: self.size
-            source: "example-background/example.png" 
+            source: "ui/example-background/example.png" 
 
     TopBar:
         id: header
