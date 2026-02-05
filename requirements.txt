@@ -4,3 +4,4 @@ djitellopy
 pygame
 kivy
 ultralytics
+onnxruntime
