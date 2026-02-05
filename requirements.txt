@@ -5,3 +5,4 @@ pygame
 kivy
 ultralytics
 onnxruntime
+python-dotenv
