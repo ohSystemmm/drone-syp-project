@@ -14,6 +14,7 @@ class TopBar(Widget): pass
 class Stats(BoxLayout): pass
 class Module(Widget): pass
 class Bottom(Widget): pass
+class FlightMenu(BoxLayout): pass
 
 class DroneApp(App):
     def build(self):
