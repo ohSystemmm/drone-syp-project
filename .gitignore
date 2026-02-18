@@ -1,3 +1,5 @@
 # gitignore - 2026
 .idea/
 .vscode/
+.venv/
+__pycache__/
