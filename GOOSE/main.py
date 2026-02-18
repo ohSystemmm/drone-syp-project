@@ -12,6 +12,8 @@ from core.drone import DroneController
 from vision.detector import ObjectDetector
 from vision.sampler import HybridSampler
 
+from ui import Setup 
+
 # NOTE: This Pygame window is a temporary placeholder.
 # Backend-focused branch: Kivy is not used here.
 
@@ -282,4 +284,5 @@ def main():
     pygame.quit()
 
 if __name__ == "__main__":
+    Setup()
     main()

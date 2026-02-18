@@ -1,0 +1,112 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+#:set margin 10
+
+<StatusIcon@BoxLayout>:
+    orientation: 'horizontal'
+    size_hint_x: None
+    width: 100
+    spacing: 8
+    icon: "X" 
+    title: "TITLE"
+    value: "0%"
+    icon_color: (1, 1, 1, 1)
+
+    Label:
+        text: root.icon
+        font_size: '20sp'
+        size_hint_x: None
+        width: 30
+        color: root.icon_color
+        valign: 'middle'
+        
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [0, 10, 0, 10]
+        
+        Label:
+            text: root.title
+            font_size: '9sp'
+            color: (0.6, 0.7, 0.7, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'bottom'
+        Label:
+            text: root.value
+            font_size: '15sp'
+            bold: True
+            color: (1, 1, 1, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'top'
+
+<TopBar>:
+    canvas:
+        Color:
+            rgba: (30/255, 35/255, 40/255, 0.95)
+        RoundedRectangle:
+            pos: (self.x + margin, self.y + margin)
+            size: (self.width - (2 * margin), self.height - (2 * margin))
+            radius: [15, 15, 15, 15]
+
+    BoxLayout:
+        pos: root.pos
+        size: root.size
+        padding: [25, 0, 25, 0] 
+        spacing: 15
+
+        Label:
+            text: "Y" 
+            font_size: '14sp'
+            color: (0, 0.2, 0, 1)
+            bold: True
+            size_hint_x: None
+            width: 30
+
+            canvas.before:
+                Color:
+                    rgba: (0, 0.9, 0.5, 1)
+                RoundedRectangle:
+                    pos: (self.center_x - 13, self.center_y - 13)
+                    size: (26, 26)
+                    radius: [13, 13, 13, 13]
+
+        Label:
+            text: "READY TO FLY"
+            font_size: '14sp'
+            bold: True
+            color: (1, 1, 1, 1)
+            size_hint_x: None
+            width: self.texture_size[0]
+
+        VerticalDivider:
+            size_hint_y: 0.4
+            pos_hint: {"center_y": 0.5}
+
+        Label:
+            text: "C  04:22" 
+            font_size: '15sp'
+            color: (0.6, 0.7, 0.8, 1)
+            size_hint_x: None
+            width: self.texture_size[0]
+
+        Widget:
+
+        StatusIcon:
+            icon: "S"
+            icon_color: (0, 0.6, 1, 1)
+            title: "SIGNAL"
+            value: "88%"
+            
+        StatusIcon:
+            icon: "B"
+            icon_color: (1, 0.8, 0, 1)
+            title: "BATTERY"
+            value: "74%"
+
+        Label:
+            text: "G"
+            font_size: '26sp'
+            size_hint_x: None
+            width: 40
+            color: (0, 0.6, 1, 1)
