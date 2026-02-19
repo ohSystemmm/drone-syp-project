@@ -1,1 +1,9 @@
 kivy
+numpy
+opencv-python
+djitellopy
+pygame
+ultralytics
+onnxruntime
+python-dotenv
+dotenv
