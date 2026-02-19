@@ -3,15 +3,13 @@ import cv2
 import numpy as np
 import os
 import argparse
-import sys
 import threading
 import time
-import copy
 import datetime
+
 from core.drone import DroneController
 from vision.detector import ObjectDetector
 from vision.sampler import HybridSampler
-
 from ui import Setup 
 
 # NOTE: This Pygame window is a temporary placeholder.
@@ -114,7 +112,6 @@ def get_keyboard_input(controller, current_threshold):
     if keys[pygame.K_RIGHTBRACKET]: new_threshold = min(1.0, current_threshold + 0.01)
     
     # 'C' key handled in main event loop for single-press toggle
-
     return [lr, fb, ud, yv], new_threshold
 
 def draw_detections(frame, detections):

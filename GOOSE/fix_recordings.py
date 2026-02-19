@@ -46,7 +46,6 @@ def fix_video(input_path):
         # The original video has Red and Blue channels swapped.
         # Calling cvtColor with BGR2RGB swaps them back.
         fixed_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        # ??????????
 
         out.write(fixed_frame)
         
