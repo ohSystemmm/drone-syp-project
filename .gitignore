@@ -149,3 +149,6 @@ cython_debug/
 .vscode/
 .venv/
 __pycache__/
+
+# Example files
+recordings/
