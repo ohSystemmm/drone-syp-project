@@ -3,70 +3,56 @@
 skinparam componentStyle uml2
 skinparam packageStyle rectangle
 skinparam shadowing false
+' Reduced spacing to prevent layout sprawl
+skinparam ranksep 30
+skinparam nodesep 20
 
-title DJI Tello TT Autonomous Flight System (Kivy Architecture)
+title DJI Tello TT: Implementation Flow (Internal Logic)
 
-node "Hardware" {
-    [DJI Tello TT Drone] as Tello
-    [Gamepad / Joystick] as JoystickHardware
+' We wrap everything in a "System" package to keep the layout engine from exploding
+package "Software System" {
+
+    package "Core Logic" {
+        component "DroneController" as DroneCtrl {
+            port "UDP_Out" as DC_Cmd
+            port "UDP_In" as DC_Vid
+        }
+        [AutoPilot] as Pilot
+        [JoystickHandler] as JoyHandler
+    }
+
+    package "Vision Worker (Thread)" {
+        [VisionWorker] as Worker
+        [PositionEstimator] as PoseEst
+        [ObjectDetector] as YOLO
+        [ArucoCalibrator] as Aruco
+    }
+
+    package "Kivy / main.py" {
+        [KivyApp] as App
+        [Room3DView] as Room3D
+        [HUD / Texture] as HUD
+    }
+
+    database "Filesystem" {
+        [calibration.json] as Config
+        [recordings/] as VideoDir
+    }
 }
 
-package "Frontend (Kivy GUI & OpenGL)" {
-    [Kivy App / Clock Scheduler] as KivyApp
-    [Video HUD Widget\n(Kivy Texture)] as HUD
-    [Control Center UI\n(Kivy Layouts)] as ControlCenterUI
-    [3D Room Widget\n(Kivy Canvas / GPU)] as Room3DWidget
-}
-
-package "Input Handling (Headless)" {
-    [Headless Pygame\n(Event Pump)] as HeadlessPygame
-    [Joystick Handler] as Joystick
-}
-
-package "Core Integration" {
-    [Drone Controller] as DroneCtrl
-    [AutoPilot (PID & Orbit)] as AutoPilot
-    [Calibration Engine] as Calibration
-}
-
-package "Vision & AI Pipeline (Async Thread)" {
-    [Vision Worker Thread] as VisionWorker
-    [YOLO Object Detector] as YOLODetector
-    [Position Estimator\n(Edge Math + Kalman)] as PoseEstimator
-    [ArUco Calibrator\n(Oracle Fusion)] as Aruco
-}
-
-package "Active Learning & Data" {
-    [Hybrid Sampler] as Sampler
-    [Data Factory\n(RL Jittering)] as DataFactory
-}
-
-' --- Relationships ---
-
-' Hardware Connections
-DroneCtrl <..> Tello : UDP \n(Cmd: 8889, Vid: 11111)
-JoystickHardware --> HeadlessPygame : USB / Bluetooth
-
-' Input Flow
-HeadlessPygame --> Joystick : Parses Axis/Buttons
-KivyApp --> Joystick : Polls @ 60Hz via Clock
-
-' Kivy UI Flow
-KivyApp --> ControlCenterUI : Manages Overlays
-KivyApp --> HUD : Updates Texture (30Hz)
-KivyApp --> Room3DWidget : Feeds 3D Pose
-KivyApp <--> DroneCtrl : Takeoff, Land, RC Commands
-
-' Vision Pipeline Flow
-DroneCtrl --> VisionWorker : Raw Video Stream
-VisionWorker --> YOLODetector : Inference
-VisionWorker --> Aruco : Detect Markers
-VisionWorker --> PoseEstimator : Extract 3D Pose
-
-' Video & Data Handoff
-YOLODetector --> VisionWorker : Returns BBoxes
-VisionWorker ..> HUD : Thread-Safe Frame Transfer\n(Pre-drawn BBoxes)
-PoseEstimator ..> Room3DWidget : Thread-Safe Pose Transfer
-PoseEstimator .up.> AutoPilot : Navigation Data
-
+' Internal Data Flow
+App --> JoyHandler : calls get_rc_inputs()
+App --> DC_Cmd : sends flight commands
+DC_Vid --> Worker : raw frame array
+Worker --> YOLO : detect(frame)
+Worker --> Aruco : detect(frame)
+YOLO --> PoseEst : ROI data
+Aruco --> PoseEst : ArUco coords
+PoseEst --> Worker : PoseEstimate object
+Worker --> HUD : updates Texture
+PoseEst --> Room3D : updates mesh
+PoseEst --> Pilot : nav data
+Pilot --> App : PID corrections
+DroneCtrl --> VideoDir : saves .mp4
+App --> Config : loads Z_SCALE
 @enduml
