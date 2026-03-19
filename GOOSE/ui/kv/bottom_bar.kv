@@ -23,6 +23,7 @@
             btn_color: (50/255, 55/255, 60/255, 1) 
             size_hint_x: None
             width: self.height
+            on_release: root.on_action("CAM")
 
         Divider:
             size_hint_y: 0.6
@@ -33,6 +34,7 @@
             btn_color: (0/255, 160/255, 230/255, 1)
             bold: True
             font_size: '18sp'
+            on_release: root.on_action("TAKE OFF")
 
         Divider:
             size_hint_y: 0.6
@@ -44,3 +46,4 @@
             text_color: (1, 0.3, 0.3, 1)
             size_hint_x: None
             width: self.height
+            on_release: root.on_action("REC")

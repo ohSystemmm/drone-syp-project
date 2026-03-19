@@ -2,9 +2,10 @@
 #:import utils kivy.utils
 #:set margin 10
 
-<FLightMenu@BoxLayout>:
+<FlightMenu>:
     Button:
         text: "Flight Menu"
         size_hint: None, None
         size: self.texture_size[0] + 20, self.texture_size[1]
+        on_release: root.on_action("Flight Menu")
         

@@ -13,10 +13,19 @@ from kivy.uix.boxlayout import BoxLayout
 class TopBar(Widget): pass
 class Stats(BoxLayout): pass
 class Module(Widget): pass
-class Bottom(Widget): pass
-class FlightMenu(BoxLayout): pass
+
+class Bottom(Widget): 
+    def on_action(self, action_name):
+        print(f"[UI Event] UI Placeholder: {action_name} button pressed")
+
+class FlightMenu(BoxLayout): 
+    def on_action(self, action_name):
+        print(f"[UI Event] UI Placeholder: {action_name} button pressed")
 
 class DroneApp(App):
+    def on_action(self, action_name):
+        print(f"[UI Event] UI Placeholder: {action_name} button pressed")
+
     def build(self):
         kv_path = os.path.join(os.path.dirname(__file__), 'ui.kv')
         return Builder.load_file(kv_path)

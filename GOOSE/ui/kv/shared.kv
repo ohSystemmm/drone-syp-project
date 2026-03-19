@@ -36,3 +36,10 @@
             pos: self.pos
             size: self.size
             radius: [10, 10, 10, 10]
+    canvas.after:
+        Color:
+            rgba: (0, 0, 0, 0.2) if self.state == 'down' else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [10, 10, 10, 10]
