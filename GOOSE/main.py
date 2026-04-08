@@ -1,7 +1,8 @@
-import pygame
 import cv2
 import numpy as np
 import os
+# Disable Kivy argument parser so we can have our own --kivy flag handling
+os.environ.setdefault("KIVY_NO_ARGS", "1")
 import argparse
 import sys
 import threading
@@ -150,6 +151,7 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    import pygame
     args = parse_args()
     
     controller = DroneController()
@@ -164,6 +166,17 @@ def main():
     
     onnx_path = os.path.join(model_dir, "targetModel.onnx")
     pt_path = os.path.join(model_dir, "targetModel.pt")
+
+    # Static fallback image when no video stream is available
+    fallback_image_path = os.path.join(os.path.dirname(__file__), "ui", "example-background", "example-background.png")
+    if not os.path.exists(fallback_image_path):
+        fallback_image_path = os.path.join(os.path.dirname(__file__), "ui", "example-background.png")
+
+    fallback_frame = None
+    if os.path.exists(fallback_image_path):
+        img = cv2.imread(fallback_image_path)
+        if img is not None:
+            fallback_frame = cv2.resize(img, (SCREEN_WIDTH, SCREEN_HEIGHT))
     
     selected_path = None
     if args.model == 'onnx':
@@ -229,24 +242,32 @@ def main():
 
         # 3. Video Display & Recording
         frame = controller.get_frame()
+        if frame is None and fallback_frame is not None:
+            frame = fallback_frame.copy()
+            stream_status = "NO STREAM (fallback image)"
+        elif frame is None:
+            stream_status = "NO STREAM"
+        else:
+            stream_status = "CONNECTED"
+
         if frame is not None:
             # RECORD RAW FRAME
             try:
                 frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 out_writer.write(frame_bgr)
-            except Exception as e:
+            except Exception:
                 pass
 
             # Get latest detections from thread
             detections = vision_thread.latest_detections if vision_thread else []
-            
+
             # Prepare for Display
-            display_frame = frame.copy() 
+            display_frame = frame.copy()
             display_frame = draw_detections(display_frame, detections)
-            
+
             if swap_rb:
                 display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-            
+
             # Rotation/Flip for Pygame
             display_frame = np.rot90(display_frame)
             display_frame = np.flipud(display_frame)
@@ -254,12 +275,12 @@ def main():
             surf = pygame.surfarray.make_surface(display_frame)
             if (surf.get_width() != SCREEN_WIDTH) or (surf.get_height() != SCREEN_HEIGHT):
                 surf = pygame.transform.scale(surf, (SCREEN_WIDTH, SCREEN_HEIGHT))
-            
+
             win.blit(surf, (0, 0))
 
             # OSD
             status_text = "CONNECTED" if controller.is_connected else "DISCONNECTED"
-            label = f"Status: {status_text} | IP: {args.ip}:{args.port} | Conf: {conf_threshold:.2f} | ESC for Kill Switch"
+            label = f"Status: {status_text} | Stream: {stream_status} | IP: {args.ip}:{args.port} | Conf: {conf_threshold:.2f} | ESC for Kill Switch"
             text_surf = font.render(label, True, (255, 0, 0))
             win.blit(text_surf, (10, 10))
 
@@ -284,5 +305,8 @@ def main():
     pygame.quit()
 
 if __name__ == "__main__":
-    Setup()
-    main()
+    # Keep modes separate: Kivy UI mode does not fall through to Pygame main loop
+    if len(sys.argv) > 1 and sys.argv[1] == '--kivy':
+        Setup()
+    else:
+        main()
