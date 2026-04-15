@@ -17,6 +17,33 @@ class Icons:
     content_save = "\U000F0193"
     arrow_bottom_right = "\U000F0043"
 
+    # Media Gallery icons
+    image = "\U000F0E09"           # mdi-image-outline
+    image_multiple = "\U000F0E0B"  # mdi-image-multiple-outline
+    video_outline = "\U000F0BFC"   # mdi-video-outline
+    star = "\U000F04CE"            # mdi-star
+    star_outline = "\U000F04D2"    # mdi-star-outline
+    folder_media = "\U000F0253"    # mdi-folder
+    cloud_upload = "\U000F0168"    # mdi-cloud-upload
+    download = "\U000F01DA"        # mdi-download
+    delete = "\U000F01B4"          # mdi-delete
+    magnify = "\U000F0349"         # mdi-magnify
+    import_icon = "\U000F012C"     # mdi-application-import
+    view_grid = "\U000F0588"       # mdi-view-grid
+    view_list = "\U000F058B"       # mdi-view-list
+    close = "\U000F0156"           # mdi-close
+    filter_variant = "\U000F0236"  # mdi-filter-variant
+    play_circle = "\U000F040D"     # mdi-play-circle
+    chevron_down = "\U000F0140"    # mdi-chevron-down
+    arrow_left = "\U000F004D"      # mdi-arrow-left
+    bell = "\U000F009A"            # mdi-bell
+    account_circle = "\U000F0009"  # mdi-account-circle
+    refresh = "\U000F0453"         # mdi-refresh
+    four_k = "\U000F0E14"          # mdi-quality-high (for 4K badge)
+    clock = "\U000F0954"           # mdi-clock-outline
+    file_size = "\U000F0224"       # mdi-file (for file size display)
+    calendar = "\U000F00ED"        # mdi-calendar
+
     @classmethod
     def get_battery_icon(cls, percentage_str):
         try:

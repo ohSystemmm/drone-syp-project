@@ -15,6 +15,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.core.text import LabelBase
 from kivy.properties import StringProperty, BooleanProperty
 from kivy.clock import Clock
+from ui.media_gallery import MediaGallery, MediaCard, NavItem, FilterChip
 
 # Register Material Design Icons font
 font_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'fonts', 'materialdesignicons-webfont.ttf')
@@ -109,7 +110,42 @@ class DroneApp(App):
         hours, mins = divmod(mins, 60)
         self.recording_time = f"{hours:02d}:{mins:02d}:{secs:02d}"
 
+    _gallery = None
+    _gallery_kv_loaded = False
+
+    def toggle_media_gallery(self):
+        """Toggle the Media Gallery overlay on/off."""
+        if self._gallery and self._gallery.parent:
+            # Gallery is showing — remove it
+            self.root.remove_widget(self._gallery)
+            self._gallery = None
+            return
+
+        # Load KV once
+        if not self._gallery_kv_loaded:
+            kv_path = os.path.join(os.path.dirname(__file__), 'kv', 'media_gallery.kv')
+            Builder.load_file(kv_path)
+            self._gallery_kv_loaded = True
+
+        # Create and add gallery
+        gallery = MediaGallery()
+        gallery.size_hint = (1, 1)
+        gallery.pos_hint = {"x": 0, "y": 0}
+        gallery.opacity = 1
+        self.root.add_widget(gallery)
+        gallery.open()
+        self._gallery = gallery
+
+    def close_media_gallery(self):
+        """Called by the gallery close button."""
+        if self._gallery and self._gallery.parent:
+            self.root.remove_widget(self._gallery)
+            self._gallery = None
+
     def on_action(self, action_name):
+        if action_name == "SETTINGS":
+            self.toggle_media_gallery()
+            return
         print(f"[UI Event] UI Placeholder: {action_name} button pressed")
 
     def on_request_close(self, *args):
