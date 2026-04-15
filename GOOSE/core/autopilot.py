@@ -111,6 +111,11 @@ class AutoPilot:
     PUNCH_CONF_MIN = 0.35           # Min confidence to enter punch (lowered to 0.35 to match tracking minimum)
     PUNCH_LOCK_TIME = 0.5           # Seconds of lock before punch triggers (increased from 0.2 for stability)
 
+    # APPROACH vertical control (preventing 1-meter dive when ring fills frame)
+    APPROACH_Y_DEADZONE = 40.0      # Larger deadzone for vertical during approach (vs 4cm in align)
+    Y_ERROR_MAX = 50.0               # Cap on Y error to prevent extreme commands from miscalibration
+    RING_FILL_THRESHOLD = 0.65       # bbox_ratio > this = ring fills frame, freeze vertical
+
     # General control
     MAX_SPEED = 80                  # Global PID output limit
     MIN_SPEED = 12                  # Tello deadzone floor
@@ -234,7 +239,7 @@ class AutoPilot:
         if self.phase == PHASE_ALIGN:
             cmd = self._compute_align(pose, now)
         elif self.phase == PHASE_APPROACH:
-            cmd = self._compute_approach(pose, now)
+            cmd = self._compute_approach(pose, now, bbox_ratio)
         else:
             cmd = (0, 0, 0, 0)
 
@@ -297,7 +302,7 @@ class AutoPilot:
 
     # --- Phase: APPROACH ---
 
-    def _compute_approach(self, pose, now):
+    def _compute_approach(self, pose, now, bbox_ratio=None):
         if self._approach_start_time is None:
             self._approach_start_time = now
 
@@ -318,8 +323,24 @@ class AutoPilot:
         yaw_dz = self._apply_deadzone(x_err, self.DEADZONE)
 
         lr = self._apply_min_speed(self.pid_lr.compute(x_dz))
-        ud = self._apply_min_speed(-self.pid_ud.compute(y_dz))
         yv = self._apply_min_speed(self.pid_yaw.compute(yaw_dz))
+
+        # --- Vertical control with ring-fill detection ---
+        # If ring fills the frame (large bbox_ratio), freeze vertical position.
+        # This prevents the ~1 meter dive that occurs when PID tries to correct
+        # based on miscalibrated distance or frame geometry.
+        ring_is_large = bbox_ratio is not None and bbox_ratio > self.RING_FILL_THRESHOLD
+
+        if ring_is_large:
+            # Ring fills frame → altitude is likely OK, don't adjust vertically
+            ud = 0
+            logger.debug("[AutoPilot|APPROACH] Ring is large (ratio=%.2f) → freezing UD", bbox_ratio)
+        else:
+            # Ring is small/distant → use normal PID but with increased deadzone
+            y_dz_approach = self._apply_deadzone(y_err, self.APPROACH_Y_DEADZONE)
+            # Cap Y error to prevent extreme commands from miscalibrated systems
+            y_dz_approach = max(-self.Y_ERROR_MAX, min(self.Y_ERROR_MAX, y_dz_approach))
+            ud = self._apply_min_speed(-self.pid_ud.compute(y_dz_approach))
 
         # Slow down if we're off-center, but maintain minimum forward motion
         xy_err = math.hypot(x_err, y_err)
