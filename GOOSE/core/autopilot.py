@@ -94,20 +94,22 @@ class AutoPilot:
     ALIGN_Z_TOL = 50.0              # Z error tolerance for "at distance" (wide: Z_SCALE may be uncalibrated)
     ALIGN_ANGLE_TOL = 45.0          # Max acceptable tilt angle (reduced from 70° to ensure ring is upright)
     ALIGN_HOLD_TIME = 0.7           # Seconds target must stay aligned (increased from 0.3 for stability)
+    ALIGN_MIN_CONF = 0.25           # Minimum confidence to proceed with alignment (safety threshold)
 
     # APPROACH: closing the distance
     APPROACH_SPEED = 80             # Forward speed at max distance
     APPROACH_MIN_SPEED = 20         # Forward speed at min distance
-    APPROACH_TIMEOUT = 6.0          # Seconds before giving up and re-aligning
-    APPROACH_RECENTER_XY = 30.0     # XY error that triggers re-align
-    APPROACH_RECENTER_TIME = 0.4    # Seconds of bad centering before reset
+    APPROACH_TIMEOUT = 10.0         # Seconds before giving up and re-aligning (increased to give more time)
+    APPROACH_RECENTER_XY = 40.0     # XY error that triggers re-align (relaxed from 30cm)
+    APPROACH_RECENTER_TIME = 1.5    # Seconds of bad centering before reset (increased from 0.4s)
+    APPROACH_DRIFT_MIN_FB = 12      # Minimum forward speed to maintain progress even when off-center
 
     # PUNCH: final burst
     PUNCH_DISTANCE = 80.0           # Z below which we commit to punch
     PUNCH_SPEED = 100               # Forward speed during punch
     PUNCH_DURATION = 2.5            # Seconds of forward push
     PUNCH_CONF_MIN = 0.35           # Min confidence to enter punch (lowered to 0.35 to match tracking minimum)
-    PUNCH_LOCK_TIME = 0.2           # Seconds of lock before punch triggers
+    PUNCH_LOCK_TIME = 0.5           # Seconds of lock before punch triggers (increased from 0.2 for stability)
 
     # General control
     MAX_SPEED = 80                  # Global PID output limit
@@ -278,6 +280,7 @@ class AutoPilot:
             and abs(y_err) < self.ALIGN_Y_TOL
             and abs(z_err) < self.ALIGN_Z_TOL
             and pose.angle_deg < self.ALIGN_ANGLE_TOL
+            and pose.confidence >= self.ALIGN_MIN_CONF
         )
 
         if aligned:
@@ -318,10 +321,10 @@ class AutoPilot:
         ud = self._apply_min_speed(-self.pid_ud.compute(y_dz))
         yv = self._apply_min_speed(self.pid_yaw.compute(yaw_dz))
 
-        # Slow down if we're off-center
+        # Slow down if we're off-center, but maintain minimum forward motion
         xy_err = math.hypot(x_err, y_err)
         if xy_err > self.APPROACH_RECENTER_XY:
-            fb = 0  # Stop forward motion until centered
+            fb = max(self.APPROACH_DRIFT_MIN_FB, fb // 2)  # Reduce forward speed but keep moving
 
         self._last_lr = lr
         self._last_ud = ud
@@ -454,10 +457,10 @@ class AutoPilot:
         print("[AutoPilot] Target Locked! -> APPROACH")
         logger.info("[AutoPilot] ALIGN -> APPROACH")
         self.phase = PHASE_APPROACH
-        # Tighter lateral gains for approach
-        self.pid_lr.set_gains(kp=1.0, ki=0.04, kd=0.4, output_limit=15)
-        self.pid_ud.set_gains(kp=1.0, ki=0.04, kd=0.4, output_limit=15)
-        self.pid_yaw.set_gains(kp=0.4, ki=0.04, kd=0.1, output_limit=30)
+        # Tighter lateral gains for approach with slightly higher limits for responsiveness
+        self.pid_lr.set_gains(kp=1.2, ki=0.05, kd=0.5, output_limit=25)
+        self.pid_ud.set_gains(kp=1.2, ki=0.05, kd=0.5, output_limit=25)
+        self.pid_yaw.set_gains(kp=0.5, ki=0.05, kd=0.15, output_limit=40)
         self._approach_start_time = None
         self._punch_lock_since = None
         self._recenter_since = None
