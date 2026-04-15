@@ -153,6 +153,8 @@ class AutoPilot:
         self._punch_lock_since = None
         self._recenter_since = None
         self._no_track_since = None
+        self._center_stable_since = None      # Downward camera centering stability
+        self._descent_start_time = None       # Descent phase timer
 
         # Last outputs (used for punch decay)
         self._last_lr = 0
@@ -201,9 +203,15 @@ class AutoPilot:
 
         now = time.monotonic()
 
-        # PUNCH runs open-loop — no pose needed
+        # PUNCH, CENTER, DESCENT run open-loop or with limited pose requirements
         if self.phase == PHASE_PUNCH:
             return self._compute_punch(now)
+
+        if self.phase == PHASE_CENTER:
+            return self._compute_center(pose, now, bbox_center)
+
+        if self.phase == PHASE_DESCENT:
+            return self._compute_descent(pose, now)
 
         if self.phase == PHASE_DONE:
             return 0, 0, 0, 0
@@ -372,10 +380,12 @@ class AutoPilot:
             if self._punch_lock_since is None:
                 self._punch_lock_since = now
             elif (now - self._punch_lock_since) >= self.PUNCH_LOCK_TIME:
-                self.phase = PHASE_PUNCH
-                self._punch_start_time = now
-                logger.info("[AutoPilot] APPROACH -> PUNCH at z=%.1f conf=%.2f", pose.z_cm, pose.confidence)
-                return lr, self.PUNCH_SPEED, ud, 0
+                # Transition to CENTER (downward camera) instead of direct punch
+                self.phase = PHASE_CENTER
+                self._center_stable_since = None
+                logger.info("[AutoPilot] APPROACH -> CENTER at z=%.1f conf=%.2f (switching to downward camera)",
+                           pose.z_cm, pose.confidence)
+                return 0, 0, 0, 0  # Stop moving while camera switches
         else:
             self._punch_lock_since = None
 
@@ -395,6 +405,94 @@ class AutoPilot:
         lr = int(self._last_lr * decay * 0.3)
         ud = int(self._last_ud * decay * 0.3)
         return lr, self.PUNCH_SPEED, ud, 0
+
+    # --- Phase: CENTER (Downward camera fine centering) ---
+
+    def _compute_center(self, pose, now, bbox_center):
+        """
+        Fine horizontal centering using downward camera (320x240).
+        Ring center must reach frame center (160, 120).
+
+        bbox_center is in downward camera coordinates.
+        """
+        if self._center_stable_since is None and pose is not None:
+            self._center_stable_since = now
+
+        # Timeout: abort if taking too long
+        if self._center_stable_since is not None and (now - self._center_stable_since) >= self.CENTER_TIMEOUT:
+            logger.warning("[AutoPilot] CENTER timeout -> back to APPROACH")
+            self._reset_to_align()
+            return 0, 0, 0, 0
+
+        # No detection in downward frame: search
+        if bbox_center is None:
+            logger.debug("[AutoPilot|CENTER] Ring not visible in downward camera - searching")
+            return 0, 20, 0, 0  # Move forward slowly to find it
+
+        # Ring detected: center it
+        cx, cy = bbox_center
+        frame_cx, frame_cy = 160, 120  # Downward frame center (320x240)
+
+        x_err = cx - frame_cx
+        y_err = cy - frame_cy
+
+        x_dz = self._apply_deadzone(x_err, self.CENTER_X_TOL)
+        y_dz = self._apply_deadzone(y_err, self.CENTER_Y_TOL)
+
+        # Proportional control (simple, not PID — frame is small)
+        # 1 pixel error = ~0.5 cm/s command
+        lr = -int(x_dz * 0.5)
+        fb = -int(y_dz * 0.5)
+
+        # Clamp to max strafe
+        lr = max(-self.CENTER_MAX_STRAFE, min(self.CENTER_MAX_STRAFE, lr))
+        fb = max(-self.CENTER_MAX_STRAFE, min(self.CENTER_MAX_STRAFE, fb))
+
+        # Check if centered
+        xy_err = math.hypot(x_err, y_err)
+        if xy_err <= (self.CENTER_X_TOL + self.CENTER_Y_TOL) / 2:
+            if self._center_stable_since is None:
+                self._center_stable_since = now
+                logger.debug("[AutoPilot|CENTER] Ring centered! Waiting for stability...")
+            elif (now - self._center_stable_since) >= self.CENTER_HOLD_TIME:
+                # Ring has been centered long enough — transition to DESCENT
+                self.phase = PHASE_DESCENT
+                self._descent_start_time = now
+                logger.info("[AutoPilot] CENTER -> DESCENT (ring centered, now descending)")
+                return 0, 0, 0, 0
+        else:
+            self._center_stable_since = now  # Reset timer if we drift
+
+        logger.debug("[AutoPilot|CENTER] x_err=%.1f y_err=%.1f -> lr=%d fb=%d", x_err, y_err, lr, fb)
+        return lr, fb, 0, 0
+
+    # --- Phase: DESCENT (Downward camera vertical drop) ---
+
+    def _compute_descent(self, pose, now):
+        """
+        Vertical descent through the ring using downward camera.
+        Move down at constant speed, maintain horizontal centering.
+        """
+        if self._descent_start_time is None:
+            self._descent_start_time = now
+
+        elapsed = now - self._descent_start_time
+
+        # Timeout: max descent duration
+        if elapsed >= self.DESCENT_DURATION:
+            self.phase = PHASE_DONE
+            logger.info("[AutoPilot] DESCENT complete -> DONE")
+            return 0, 0, 0, 0
+
+        # Constant downward velocity
+        ud = int(self.DESCENT_SPEED)
+
+        # Small horizontal corrections if ring drifts (optional)
+        # For now, just descend straight
+        lr, fb = 0, 0
+
+        logger.debug("[AutoPilot|DESCENT] elapsed=%.2f / %.2f -> ud=%d", elapsed, self.DESCENT_DURATION, ud)
+        return lr, fb, ud, 0
 
     # --- Bbox fallback ---
 
@@ -495,6 +593,8 @@ class AutoPilot:
         self._approach_start_time = None
         self._punch_lock_since = None
         self._recenter_since = None
+        self._center_stable_since = None      # Reset downward camera timing
+        self._descent_start_time = None       # Reset descent timing
 
     def _restore_align_gains(self):
         self.pid_lr.set_gains(kp=0.6, ki=0.005, kd=0.5, output_limit=self.MAX_SPEED)
@@ -512,6 +612,8 @@ class AutoPilot:
         self._punch_lock_since = None
         self._recenter_since = None
         self._no_track_since = None
+        self._center_stable_since = None      # Reset downward camera timing
+        self._descent_start_time = None       # Reset descent timing
         self._last_lr = 0
         self._last_ud = 0
         self._last_log_time = 0.0
