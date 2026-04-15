@@ -75,6 +75,8 @@ class PIDController:
 # --- Phase constants ---
 PHASE_ALIGN = "ALIGN"
 PHASE_APPROACH = "APPROACH"
+PHASE_CENTER = "CENTER"          # Fine centering via downward camera
+PHASE_DESCENT = "DESCENT"        # Vertical descent via downward camera
 PHASE_PUNCH = "PUNCH"
 PHASE_DONE = "DONE"
 
