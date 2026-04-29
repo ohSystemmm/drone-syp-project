@@ -1,0 +1,850 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+#:import Icons ui.icons.Icons
+#:set margin 10
+
+# ─── Media Card ──────────────────────────────────────────
+<MediaCard>:
+    orientation: 'vertical'
+    size_hint: None, None
+    size: 200, 220
+    spacing: 6
+
+    # Thumbnail area
+    BoxLayout:
+        size_hint_y: None
+        height: 140
+        canvas.before:
+            Color:
+                rgba: root.thumb_color
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [10, 10, 4, 4]
+            # Selection highlight border
+            Color:
+                rgba: (0, 0.6, 1, 0.8) if root.is_selected else (0.2, 0.25, 0.35, 0.6)
+            Line:
+                rounded_rectangle: [self.x, self.y, self.width, self.height, 10, 10, 4, 4]
+                width: 1.5 if root.is_selected else 1
+
+        # Center icon (camera or play button)
+        Label:
+            text: Icons.play_circle if root.is_video else Icons.camera
+            font_name: 'Icons'
+            font_size: '36sp' if root.is_video else '28sp'
+            color: (1, 1, 1, 0.5) if not root.is_video else (1, 1, 1, 0.7)
+
+    # Filename + size row
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: 18
+        padding: [4, 0, 4, 0]
+
+        Label:
+            text: root.filename[:22] + "..." if len(root.filename) > 25 else root.filename
+            font_size: '11sp'
+            bold: True
+            color: (0.85, 0.9, 0.95, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+            shorten: True
+
+        Label:
+            text: root.file_size
+            font_size: '10sp'
+            color: (0.5, 0.6, 0.7, 1)
+            size_hint_x: None
+            width: 60
+            text_size: self.size
+            halign: 'right'
+            valign: 'middle'
+
+    # Date row
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: 16
+        padding: [4, 0, 4, 0]
+        spacing: 4
+
+        Label:
+            text: Icons.calendar if root.file_date else ""
+            font_name: 'Icons'
+            font_size: '11sp'
+            color: (0.4, 0.5, 0.6, 1)
+            size_hint_x: None
+            width: 14
+
+        Label:
+            text: root.file_date
+            font_size: '10sp'
+            color: (0.4, 0.5, 0.6, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+
+
+# ─── Nav Item ────────────────────────────────────────────
+<NavItem>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: 40
+    padding: [14, 0, 14, 0]
+    spacing: 12
+
+    canvas.before:
+        Color:
+            rgba: (0, 0.45, 0.75, 0.35) if self.is_active else ((1, 1, 1, 0.05) if self.state == 'down' else (0, 0, 0, 0))
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [8]
+
+    Label:
+        text: root.icon
+        font_name: 'Icons'
+        font_size: '17sp'
+        color: (0.3, 0.7, 1, 1) if root.is_active else (0.5, 0.6, 0.7, 1)
+        size_hint_x: None
+        width: 24
+
+    Label:
+        text: root.text
+        font_size: '13sp'
+        bold: root.is_active
+        color: (1, 1, 1, 1) if root.is_active else (0.7, 0.75, 0.8, 1)
+        text_size: self.size
+        halign: 'left'
+        valign: 'middle'
+
+
+# ─── Filter Chip ─────────────────────────────────────────
+<FilterChip>:
+    orientation: 'horizontal'
+    size_hint: None, None
+    height: 34
+    width: 110 if self.has_dropdown else 90
+    padding: [14, 0, 14, 0]
+    spacing: 6
+
+    canvas.before:
+        Color:
+            rgba: (0, 0.5, 0.8, 0.5) if self.is_active else (0.15, 0.18, 0.25, 0.8)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [17]
+        Color:
+            rgba: (0, 0.55, 0.9, 0.7) if self.is_active else (0.25, 0.3, 0.4, 0.6)
+        Line:
+            rounded_rectangle: [self.x, self.y, self.width, self.height, 17]
+            width: 1
+
+    Label:
+        text: root.text
+        font_size: '12sp'
+        bold: root.is_active
+        color: (1, 1, 1, 1) if root.is_active else (0.7, 0.75, 0.85, 1)
+
+    Label:
+        text: Icons.chevron_down if root.has_dropdown else ""
+        font_name: 'Icons'
+        font_size: '14sp'
+        color: (0.6, 0.7, 0.8, 1)
+        size_hint_x: None
+        width: 16 if root.has_dropdown else 0
+
+
+# ─── Media Gallery (Full Overlay) ────────────────────────
+<MediaGallery>:
+
+    canvas.before:
+        Color:
+            rgba: (12/255, 17/255, 29/255, 1)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    # ===== TOP NAV BAR =====
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint: 1, None
+        height: 56
+        pos_hint: {"top": 1}
+        padding: [20, 8, 20, 8]
+        spacing: 14
+
+        canvas.before:
+            Color:
+                rgba: (16/255, 22/255, 36/255, 1)
+            Rectangle:
+                pos: self.pos
+                size: self.size
+            Color:
+                rgba: (0.15, 0.2, 0.3, 0.5)
+            Rectangle:
+                pos: self.x, self.y
+                size: self.width, 1
+
+        # App Logo + Title
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_x: None
+            width: 200
+            spacing: 10
+
+            Label:
+                text: Icons.sync
+                font_name: 'Icons'
+                font_size: '22sp'
+                color: (0.2, 0.7, 1, 1)
+                size_hint_x: None
+                width: 30
+
+            Label:
+                text: "GOOSE Control"
+                font_size: '15sp'
+                bold: True
+                color: (1, 1, 1, 1)
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+
+        # Nav Links
+        Label:
+            text: "Dashboard"
+            font_size: '13sp'
+            color: (0.5, 0.55, 0.65, 1)
+            size_hint_x: None
+            width: 80
+
+        Label:
+            text: "Media Gallery"
+            font_size: '13sp'
+            bold: True
+            color: (0.2, 0.65, 1, 1)
+            size_hint_x: None
+            width: 100
+
+        Label:
+            text: "Flight Logs"
+            font_size: '13sp'
+            color: (0.5, 0.55, 0.65, 1)
+            size_hint_x: None
+            width: 80
+
+        Label:
+            text: "Settings"
+            font_size: '13sp'
+            color: (0.5, 0.55, 0.65, 1)
+            size_hint_x: None
+            width: 60
+
+        Widget:
+
+        # Search Bar
+        BoxLayout:
+            size_hint_x: None
+            width: 220
+            padding: [12, 6, 12, 6]
+            canvas.before:
+                Color:
+                    rgba: (0.08, 0.1, 0.16, 0.8)
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [18]
+                Color:
+                    rgba: (0.2, 0.25, 0.35, 0.5)
+                Line:
+                    rounded_rectangle: [self.x, self.y, self.width, self.height, 18]
+                    width: 1
+
+            Label:
+                text: Icons.magnify
+                font_name: 'Icons'
+                font_size: '16sp'
+                color: (0.4, 0.5, 0.6, 1)
+                size_hint_x: None
+                width: 22
+
+            Label:
+                text: "Search gallery..."
+                font_size: '12sp'
+                color: (0.35, 0.4, 0.5, 1)
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+
+        # Sync Button
+        BoxLayout:
+            size_hint_x: None
+            width: 160
+            padding: [14, 6, 14, 6]
+            spacing: 8
+            canvas.before:
+                Color:
+                    rgba: (0, 0.45, 0.75, 1)
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [18]
+
+            Label:
+                text: Icons.refresh
+                font_name: 'Icons'
+                font_size: '15sp'
+                color: (1, 1, 1, 1)
+                size_hint_x: None
+                width: 20
+
+            Label:
+                text: "Sync from Drone"
+                font_size: '12sp'
+                bold: True
+                color: (1, 1, 1, 1)
+
+        # Bell + Avatar
+        Label:
+            text: Icons.bell
+            font_name: 'Icons'
+            font_size: '18sp'
+            color: (0.5, 0.6, 0.7, 1)
+            size_hint_x: None
+            width: 32
+
+        Label:
+            text: Icons.account_circle
+            font_name: 'Icons'
+            font_size: '24sp'
+            color: (0.4, 0.5, 0.65, 1)
+            size_hint_x: None
+            width: 32
+
+    # ===== MAIN BODY (Sidebar + Content) =====
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint: 1, 1
+        pos_hint: {"x": 0, "y": 0}
+        padding: [0, 56, 0, 0]
+
+        # ─── LEFT SIDEBAR ─────────────────────
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_x: None
+            width: 200
+            padding: [12, 16, 12, 16]
+            spacing: 6
+
+            canvas.before:
+                Color:
+                    rgba: (14/255, 19/255, 32/255, 1)
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+                Color:
+                    rgba: (0.12, 0.16, 0.25, 0.6)
+                Rectangle:
+                    pos: self.x + self.width - 1, self.y
+                    size: 1, self.height
+
+            # Drone Status Pill
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: 50
+                padding: [10, 6, 10, 6]
+                spacing: 10
+                canvas.before:
+                    Color:
+                        rgba: (0.06, 0.1, 0.16, 1)
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [10]
+
+                Label:
+                    text: Icons.sync
+                    font_name: 'Icons'
+                    font_size: '20sp'
+                    color: (0.2, 0.65, 1, 1)
+                    size_hint_x: None
+                    width: 28
+
+                BoxLayout:
+                    orientation: 'vertical'
+                    spacing: 1
+
+                    Label:
+                        text: "GOOSE-01"
+                        font_size: '12sp'
+                        bold: True
+                        color: (1, 1, 1, 1)
+                        text_size: self.size
+                        halign: 'left'
+                        valign: 'bottom'
+
+                    BoxLayout:
+                        orientation: 'horizontal'
+                        size_hint_y: None
+                        height: 14
+                        spacing: 4
+
+                        Widget:
+                            size_hint: None, None
+                            size: 7, 7
+                            pos_hint: {'center_y': 0.5}
+                            canvas.before:
+                                Color:
+                                    rgba: (0.2, 0.8, 0.4, 1)
+                                Ellipse:
+                                    pos: self.pos
+                                    size: self.size
+
+                        Label:
+                            text: "CONNECTED"
+                            font_size: '9sp'
+                            color: (0.2, 0.8, 0.4, 1)
+                            text_size: self.size
+                            halign: 'left'
+                            valign: 'middle'
+
+            Widget:
+                size_hint_y: None
+                height: 14
+
+            # NAVIGATION section header
+            Label:
+                text: "NAVIGATION"
+                font_size: '10sp'
+                bold: True
+                color: (0.35, 0.4, 0.5, 1)
+                size_hint_y: None
+                height: 22
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+                padding: [14, 0, 0, 0]
+
+            NavItem:
+                icon: Icons.view_grid
+                text: "All Media"
+                is_active: root.active_nav == "All Media"
+                on_release: root.set_active_nav("All Media")
+
+            NavItem:
+                icon: Icons.image
+                text: "Photos"
+                is_active: root.active_nav == "Photos"
+                on_release: root.set_active_nav("Photos")
+
+            NavItem:
+                icon: Icons.video_outline
+                text: "Videos"
+                is_active: root.active_nav == "Videos"
+                on_release: root.set_active_nav("Videos")
+
+            NavItem:
+                icon: Icons.star
+                text: "Favorites"
+                is_active: root.active_nav == "Favorites"
+                on_release: root.set_active_nav("Favorites")
+
+            Widget:
+                size_hint_y: None
+                height: 20
+
+            # STORAGE section
+            Label:
+                text: "STORAGE"
+                font_size: '10sp'
+                bold: True
+                color: (0.35, 0.4, 0.5, 1)
+                size_hint_y: None
+                height: 22
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+                padding: [14, 0, 0, 0]
+
+            # Storage progress bar
+            Widget:
+                size_hint_y: None
+                height: 6
+                canvas:
+                    Color:
+                        rgba: (0.15, 0.2, 0.3, 1)
+                    RoundedRectangle:
+                        pos: self.x + 14, self.y
+                        size: self.width - 28, self.height
+                        radius: [3]
+                    Color:
+                        rgba: (0.1, 0.5, 0.9, 1)
+                    RoundedRectangle:
+                        pos: self.x + 14, self.y
+                        size: (self.width - 28) * root.storage_percent, self.height
+                        radius: [3]
+
+            Label:
+                text: root.storage_used + " of " + root.storage_total + " used"
+                font_size: '10sp'
+                color: (0.4, 0.5, 0.6, 1)
+                size_hint_y: None
+                height: 18
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+                padding: [14, 0, 0, 0]
+
+            Widget:
+
+            # Cloud Backup button
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: 42
+                padding: [12, 6, 12, 6]
+                spacing: 8
+                canvas.before:
+                    Color:
+                        rgba: (0.06, 0.1, 0.16, 1)
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [10]
+
+                Label:
+                    text: Icons.cloud_upload
+                    font_name: 'Icons'
+                    font_size: '16sp'
+                    color: (0.4, 0.55, 0.7, 1)
+                    size_hint_x: None
+                    width: 22
+
+                Label:
+                    text: "Cloud Backup"
+                    font_size: '12sp'
+                    color: (0.7, 0.75, 0.8, 1)
+                    text_size: self.size
+                    halign: 'left'
+                    valign: 'middle'
+
+        # ─── MAIN CONTENT AREA ────────────────
+        BoxLayout:
+            orientation: 'vertical'
+            padding: [28, 20, 28, 70]
+            spacing: 16
+
+            # Title Row
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: 60
+
+                BoxLayout:
+                    orientation: 'vertical'
+                    spacing: 4
+
+                    Label:
+                        text: "Media Gallery"
+                        font_size: '26sp'
+                        bold: True
+                        color: (1, 1, 1, 1)
+                        text_size: self.size
+                        halign: 'left'
+                        valign: 'bottom'
+
+                    Label:
+                        text: "Manage your aerial captures and drone telemetry media."
+                        font_size: '12sp'
+                        color: (0.45, 0.5, 0.6, 1)
+                        text_size: self.size
+                        halign: 'left'
+                        valign: 'top'
+
+                Widget:
+
+                # Selection Mode + View toggle
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint: None, None
+                    size: 220, 36
+                    pos_hint: {"center_y": 0.5}
+                    spacing: 10
+
+                    BoxLayout:
+                        size_hint_x: None
+                        width: 148
+                        padding: [12, 4, 12, 4]
+                        spacing: 6
+                        canvas.before:
+                            Color:
+                                rgba: (0.08, 0.12, 0.2, 0.9)
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [18]
+
+                        Label:
+                            text: Icons.filter_variant
+                            font_name: 'Icons'
+                            font_size: '14sp'
+                            color: (0.4, 0.6, 0.85, 1)
+                            size_hint_x: None
+                            width: 18
+
+                        Label:
+                            text: "Selection Mode"
+                            font_size: '11sp'
+                            color: (0.7, 0.8, 0.9, 1)
+
+                    BoxLayout:
+                        size_hint_x: None
+                        width: 56
+                        padding: [4, 4, 4, 4]
+                        spacing: 2
+                        canvas.before:
+                            Color:
+                                rgba: (0.08, 0.12, 0.2, 0.9)
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [8]
+
+                        Label:
+                            text: Icons.view_grid
+                            font_name: 'Icons'
+                            font_size: '16sp'
+                            color: (0.3, 0.65, 1, 1)
+
+                        Label:
+                            text: Icons.view_list
+                            font_name: 'Icons'
+                            font_size: '16sp'
+                            color: (0.4, 0.5, 0.6, 1)
+
+            # Filter Chips Row
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: 38
+                spacing: 10
+
+                FilterChip:
+                    text: "All Items"
+                    is_active: True
+
+                FilterChip:
+                    text: "Today"
+                    has_dropdown: True
+
+                FilterChip:
+                    text: "Resolution"
+                    has_dropdown: True
+
+                FilterChip:
+                    text: "File Type"
+                    has_dropdown: True
+
+                Widget:
+
+            # ─── Scrollable Media Grid ────────
+            ScrollView:
+                do_scroll_x: False
+                bar_width: 6
+                bar_color: (0.2, 0.4, 0.6, 0.5)
+                bar_inactive_color: (0.15, 0.2, 0.3, 0.3)
+
+                GridLayout:
+                    id: media_grid
+                    cols: 4
+                    spacing: 16
+                    padding: [0, 8, 0, 8]
+                    size_hint_y: None
+                    height: self.minimum_height
+                    col_default_width: 200
+                    row_default_height: 220
+
+            # Load More + Counter
+            BoxLayout:
+                orientation: 'vertical'
+                size_hint_y: None
+                height: 70
+                spacing: 8
+
+                BoxLayout:
+                    size_hint: None, None
+                    size: 200, 36
+                    pos_hint: {"center_x": 0.5}
+                    canvas.before:
+                        Color:
+                            rgba: (0.1, 0.14, 0.22, 1)
+                        RoundedRectangle:
+                            pos: self.pos
+                            size: self.size
+                            radius: [18]
+                        Color:
+                            rgba: (0.2, 0.28, 0.4, 0.6)
+                        Line:
+                            rounded_rectangle: [self.x, self.y, self.width, self.height, 18]
+                            width: 1
+
+                    Label:
+                        text: "Load More Captures"
+                        font_size: '12sp'
+                        bold: True
+                        color: (0.75, 0.8, 0.9, 1)
+
+                Label:
+                    text: "SHOWING " + str(root.shown_items) + " OF " + str(root.total_items) + " ITEMS"
+                    font_size: '10sp'
+                    color: (0.35, 0.4, 0.5, 1)
+                    size_hint_y: None
+                    height: 20
+
+    # ===== BOTTOM ACTION BAR =====
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint: None, None
+        size: 580, 50
+        pos_hint: {"center_x": 0.5, "y": 0.02}
+        padding: [20, 8, 20, 8]
+        spacing: 20
+
+        canvas.before:
+            Color:
+                rgba: (18/255, 24/255, 38/255, 0.95)
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [25]
+            Color:
+                rgba: (0.15, 0.22, 0.35, 0.6)
+            Line:
+                rounded_rectangle: [self.x, self.y, self.width, self.height, 25]
+                width: 1
+
+        # Selected items count
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_x: None
+            width: 100
+            spacing: 8
+
+            Label:
+                text: Icons.check_circle
+                font_name: 'Icons'
+                font_size: '16sp'
+                color: (0.2, 0.7, 1, 1)
+                size_hint_x: None
+                width: 20
+
+            BoxLayout:
+                orientation: 'vertical'
+                Label:
+                    text: "Items"
+                    font_size: '11sp'
+                    bold: True
+                    color: (1, 1, 1, 1)
+                    text_size: self.size
+                    halign: 'left'
+                    valign: 'bottom'
+                Label:
+                    text: "Selected"
+                    font_size: '10sp'
+                    color: (0.5, 0.55, 0.65, 1)
+                    text_size: self.size
+                    halign: 'left'
+                    valign: 'top'
+
+        VerticalDivider:
+            size_hint_y: 0.6
+            pos_hint: {"center_y": 0.5}
+
+        # Download
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_x: None
+            width: 90
+            spacing: 6
+
+            Label:
+                text: Icons.download
+                font_name: 'Icons'
+                font_size: '16sp'
+                color: (0.2, 0.65, 1, 1)
+                size_hint_x: None
+                width: 20
+
+            Label:
+                text: "Download"
+                font_size: '12sp'
+                color: (0.2, 0.65, 1, 1)
+
+        # Favorite
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_x: None
+            width: 80
+            spacing: 6
+
+            Label:
+                text: Icons.star
+                font_name: 'Icons'
+                font_size: '16sp'
+                color: (0.85, 0.85, 0.9, 1)
+                size_hint_x: None
+                width: 20
+
+            Label:
+                text: "Favorite"
+                font_size: '12sp'
+                color: (0.85, 0.85, 0.9, 1)
+
+        # Delete
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_x: None
+            width: 70
+            spacing: 6
+
+            Label:
+                text: Icons.delete
+                font_name: 'Icons'
+                font_size: '16sp'
+                color: (0.9, 0.3, 0.3, 1)
+                size_hint_x: None
+                width: 20
+
+            Label:
+                text: "Delete"
+                font_size: '12sp'
+                color: (0.9, 0.3, 0.3, 1)
+
+        # Close (X)
+        Button:
+            text: Icons.close
+            font_name: 'Icons'
+            font_size: '18sp'
+            color: (0.5, 0.55, 0.65, 1)
+            background_normal: ''
+            background_color: (0, 0, 0, 0)
+            size_hint_x: None
+            width: 28
+            on_release: app.close_media_gallery()
+
+    # ===== CLOSE BUTTON (top-right) =====
+    Button:
+        text: Icons.close
+        font_name: 'Icons'
+        font_size: '20sp'
+        color: (0.6, 0.65, 0.75, 1) if self.state == 'normal' else (1, 1, 1, 1)
+        background_normal: ''
+        background_color: (0, 0, 0, 0)
+        size_hint: None, None
+        size: 36, 36
+        pos_hint: {"right": 0.995, "top": 0.99}
+        on_release: app.close_media_gallery()

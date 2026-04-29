@@ -1,0 +1,110 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+#:set margin 10
+
+<StatCard@BoxLayout>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: 85
+    padding: [15, 10, 15, 10]
+    spacing: 2
+    
+    title: "TITLE"
+    value: "0.0"
+    unit: "m"
+    bar_percent: 0.5
+
+    canvas.before:
+        Color:
+            rgba: (30/255, 35/255, 40/255, 0.85) 
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [12, 12, 12, 12]
+
+    Label:
+        text: root.title
+        font_size: '10sp'
+        bold: True
+        color: (0.5, 0.7, 0.8, 1)
+        size_hint_y: None
+        height: 18
+        text_size: self.size
+        halign: 'left'
+        valign: 'middle'
+
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: 35
+        spacing: 4
+
+        Label:
+            text: root.value
+            font_size: '26sp'
+            bold: True
+            color: (1, 1, 1, 1)
+            size_hint_x: None
+            width: self.texture_size[0]
+            size_hint_y: 1
+            valign: 'bottom'
+
+        Label:
+            text: root.unit
+            font_size: '14sp'
+            color: (0.7, 0.7, 0.7, 1)
+            size_hint_x: None
+            width: self.texture_size[0]
+            padding: [0, 0, 0, 5] 
+
+        Widget:
+
+    Widget:
+
+    Widget:
+        size_hint_y: None
+        height: 4
+        canvas:
+            Color:
+                rgba: (1, 1, 1, 0.15) 
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [2, 2, 2, 2]
+            
+            Color:
+                rgba: (0, 0.6, 1, 1)
+            RoundedRectangle:
+                pos: self.pos
+                size: (self.width * root.bar_percent, self.height)
+                radius: [2, 2, 2, 2]
+
+<Stats>:
+    BoxLayout:
+        orientation: 'vertical'
+        pos: root.pos
+        size: root.size
+        spacing: 12
+        padding: [0, 60, 20, 0] 
+
+        Widget: 
+
+        StatCard:
+            title: "ALTITUDE"
+            value: "4.5"
+            unit: "m"
+            bar_percent: 0.45
+
+        StatCard:
+            title: "SPEED"
+            value: "1.2"
+            unit: "m/s"
+            bar_percent: 0.15
+
+        StatCard:
+            title: "DISTANCE"
+            value: "12.8"
+            unit: "m"
+            bar_percent: 0.60
+
+        Widget:

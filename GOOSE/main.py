@@ -1,12 +1,6 @@
+
 import os
 import sys
-# Set environment variables to suppress OpenCV/FFmpeg noisy UDP decoding warnings
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;quiet"
-os.environ["OPENCV_LOG_LEVEL"] = "FATAL"
-
-import pygame
-import cv2
-import numpy as np
 import argparse
 import threading
 import time
@@ -14,6 +8,17 @@ import copy
 import datetime
 import logging
 import math
+
+# Disable Kivy argument parser so we can have our own --kivy flag handling
+os.environ.setdefault("KIVY_NO_ARGS", "1")
+# Set environment variables to suppress OpenCV/FFmpeg noisy UDP decoding warnings
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;quiet"
+os.environ["OPENCV_LOG_LEVEL"] = "FATAL"
+
+import cv2
+import numpy as np
+import pygame
+
 from logging.handlers import RotatingFileHandler
 
 # djitellopy uses PyAV for video decoding. PyAV directly wraps libavcodec.
@@ -52,6 +57,9 @@ def setup_logging():
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     root.handlers.clear()
+
+
+from ui import Setup 
 
     fmt = logging.Formatter("%(asctime)s.%(msecs)03d | %(levelname)-8s | %(name)s | %(message)s", "%Y-%m-%d %H:%M:%S")
 
@@ -403,6 +411,17 @@ def main():
     if not os.path.exists(model_dir): model_dir = "assets/models"
     onnx_path = os.path.join(model_dir, "targetModel.onnx")
     pt_path = os.path.join(model_dir, "targetModel.pt")
+
+    # Static fallback image when no video stream is available
+    fallback_image_path = os.path.join(os.path.dirname(__file__), "ui", "example-background", "example-background.png")
+    if not os.path.exists(fallback_image_path):
+        fallback_image_path = os.path.join(os.path.dirname(__file__), "ui", "example-background.png")
+
+    fallback_frame = None
+    if os.path.exists(fallback_image_path):
+        img = cv2.imread(fallback_image_path)
+        if img is not None:
+            fallback_frame = cv2.resize(img, (SCREEN_WIDTH, SCREEN_HEIGHT))
     
     selected_path = None
     if args.model == 'onnx':
@@ -586,6 +605,67 @@ def main():
             if joy_calib.active:
                 joy_calib.update()
 
+        # 3. Video Display & Recording
+        frame = controller.get_frame()
+        if frame is None and fallback_frame is not None:
+            frame = fallback_frame.copy()
+            stream_status = "NO STREAM (fallback image)"
+        elif frame is None:
+            stream_status = "NO STREAM"
+        else:
+            stream_status = "CONNECTED"
+
+        if frame is not None:
+            # RECORD RAW FRAME
+            try:
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                out_writer.write(frame_bgr)
+            except Exception:
+                pass
+
+            # Get latest detections from thread
+            detections = vision_thread.latest_detections if vision_thread else []
+
+            # Prepare for Display
+            display_frame = frame.copy()
+            display_frame = draw_detections(display_frame, detections)
+
+            if swap_rb:
+                display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+
+            # Rotation/Flip for Pygame
+            display_frame = np.rot90(display_frame)
+            display_frame = np.flipud(display_frame)
+
+            surf = pygame.surfarray.make_surface(display_frame)
+            if (surf.get_width() != SCREEN_WIDTH) or (surf.get_height() != SCREEN_HEIGHT):
+                surf = pygame.transform.scale(surf, (SCREEN_WIDTH, SCREEN_HEIGHT))
+
+            win.blit(surf, (0, 0))
+
+            # OSD
+            status_text = "CONNECTED" if controller.is_connected else "DISCONNECTED"
+            label = f"Status: {status_text} | Stream: {stream_status} | IP: {args.ip}:{args.port} | Conf: {conf_threshold:.2f} | ESC for Kill Switch"
+            text_surf = font.render(label, True, (255, 0, 0))
+            win.blit(text_surf, (10, 10))
+
+        else:
+            win.fill((0, 0, 0))
+            text = font.render("Waiting for video stream...", True, (255, 255, 255))
+            win.blit(text, (SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2))
+
+        pygame.display.update()
+        pygame.time.delay(16) 
+
+    # Cleanup
+    if vision_thread:
+        vision_thread.stop()
+        vision_thread.join()
+    
+    if out_writer:
+        out_writer.release()
+        print("Video Saved.")
+
             is_new_frame = current_frame is not None and id(current_frame) != _last_main_frame_id
 
             if is_new_frame:
@@ -752,6 +832,7 @@ def main():
                         pygame.draw.circle(surface, (255, 255, 255), (rx, ry), 6)
                     draw_sticks(win, raw_sticks, SCREEN_WIDTH//2 - 90, SCREEN_HEIGHT - 100)
 
+
             else:
                 win.fill((0, 0, 0))
                 text = font.render("Waiting for video stream...", True, (255, 255, 255))
@@ -798,5 +879,8 @@ def main():
         logger.info("Shutdown complete. Log file: %s", log_path)
 
 if __name__ == "__main__":
-    main()
-
+    # Keep modes separate: Kivy UI mode does not fall through to Pygame main loop
+    if len(sys.argv) > 1 and sys.argv[1] == '--kivy':
+        Setup()
+    else:
+        main()

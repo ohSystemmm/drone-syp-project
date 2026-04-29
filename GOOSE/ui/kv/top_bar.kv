@@ -1,0 +1,121 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+#:import Icons ui.icons.Icons
+#:set margin 10
+
+<StatusIcon@BoxLayout>:
+    orientation: 'horizontal'
+    size_hint_x: None
+    width: 90
+    spacing: 6
+    icon: "" 
+    title: "TITLE"
+    value: "0%"
+    icon_color: (1, 1, 1, 1)
+
+    Label:
+        text: root.icon
+        font_name: 'Icons'
+        font_size: '20sp'
+        size_hint_x: None
+        width: 24
+        color: root.icon_color
+        valign: 'middle'
+        
+    BoxLayout:
+        orientation: 'vertical'
+        padding: [0, 8, 0, 8]
+        
+        Label:
+            text: root.title
+            font_size: '9sp'
+            color: (0.6, 0.7, 0.7, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'bottom'
+        Label:
+            text: root.value
+            font_size: '15sp'
+            bold: True
+            color: (1, 1, 1, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'top'
+
+<TopBar>:
+    size_hint_y: None
+    height: 60
+    canvas:
+        Color:
+            rgba: (28/255, 38/255, 45/255, 0.95)
+        RoundedRectangle:
+            pos: (self.x + margin, self.y + margin)
+            size: (self.width - (2 * margin), self.height - (2 * margin))
+            radius: [12]
+
+    BoxLayout:
+        pos: (root.x + margin, root.y + margin)
+        size: (root.width - (2 * margin), root.height - (2 * margin))
+        padding: [16, 4, 16, 4]
+        spacing: 14
+
+        Label:
+            text: Icons.check_circle
+            font_name: 'Icons'
+            font_size: '16sp'
+            color: (0.1, 0.3, 0.1, 1)
+            size_hint_x: None
+            width: 24
+            canvas.before:
+                Color:
+                    rgba: (0.2, 0.85, 0.4, 1)
+                RoundedRectangle:
+                    pos: self.center_x - 12, self.center_y - 12
+                    size: 24, 24
+                    radius: [12]
+
+        Label:
+            text: "READY TO FLY"
+            font_size: '15sp'
+            bold: True
+            color: (1, 1, 1, 1)
+            size_hint_x: None
+            width: self.texture_size[0]
+
+        VerticalDivider:
+            size_hint_y: 0.5
+            pos_hint: {"center_y": 0.5}
+
+        Label:
+            text: app.uptime
+            font_size: '15sp'
+            bold: True
+            color: (0.6, 0.7, 0.8, 1)
+            size_hint_x: None
+            width: self.texture_size[0]
+
+        Widget:
+            # This widget expands to fill all empty space in the middle!
+
+        StatusIcon:
+            icon: Icons.wifi
+            icon_color: (0.2, 0.6, 1, 1)
+            title: "SIGNAL"
+            value: "88%"
+
+        StatusIcon:
+            icon: Icons.get_battery_icon(self.value)
+            icon_color: (1, 0.8, 0, 1)
+            title: "BATTERY"
+            value: "74%"
+
+        Button:
+            text: Icons.cog
+            font_name: 'Icons'
+            font_size: '22sp'
+            color: (0.2, 0.6, 1, 1) if self.state == 'normal' else (0.4, 0.8, 1, 1)
+            background_normal: ''
+            background_color: (0, 0, 0, 0)
+            size_hint_x: None
+            width: 36
+            on_release: app.on_action("SETTINGS")

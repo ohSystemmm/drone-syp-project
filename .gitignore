@@ -147,13 +147,8 @@ cython_debug/
 
 # VS Code
 .vscode/
+.venv/
+__pycache__/
 
-# Project Specific - Data and Recordings
-GOOSE/flight_data/
-GOOSE/recordings/
-flight_data/
+# Example files
 recordings/
-
-# Project Specific - Models (Optional: usually ignored if large)
-# GOOSE/assets/models/*.pt
-# GOOSE/assets/models/*.onnx
