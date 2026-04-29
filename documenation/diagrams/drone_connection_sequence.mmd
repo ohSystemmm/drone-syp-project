@@ -1,0 +1,67 @@
+sequenceDiagram
+    autonumber
+    actor Client as Client (App / Autopilot / Joystick)
+    participant DC as DroneController
+    participant Tello as DJITelloPy (Tello)
+    participant HW as Drone Hardware (Tello)
+
+    rect rgba(100, 150, 255, 0.1)
+    Note over Client,HW: Phase 1: Verbindungsaufbau & Video
+    Client->>DC: connect(host, port)
+    DC->>Tello: connect()
+    Tello->>HW: "command" (UDP 8889)
+    HW-->>Tello: "ok"
+    Tello-->>DC: connected
+    
+    Note over DC,Tello: Konfiguration (Resolution, FPS, Bitrate)
+    DC->>Tello: streamon()
+    Tello->>HW: "streamon"
+    HW-->>Tello: "ok"
+    DC->>Tello: get_frame_read()
+    Tello->>HW: Öffnet UDP 11111 für Video
+    HW-->>Tello: Continuous Video Frames
+    DC->>DC: Warten auf ersten Frame
+    DC-->>Client: Connection Success (True)
+    end
+
+    rect rgba(150, 255, 100, 0.1)
+    Note over Client,HW: Phase 2: Watchdog (Background Thread)
+    DC->>DC: _start_watchdog()
+    loop Alle 3 Sekunden
+        DC->>Tello: get_battery()
+        Tello->>HW: "battery?"
+        HW-->>Tello: Wert (z.B. 85)
+        Tello-->>DC: Update _last_successful_ping
+        
+        opt Ping Timeout (> 10s)
+            DC->>DC: _emergency_auto_land()
+            DC-->>Client: Callback: on_connection_lost()
+        end
+    end
+    end
+
+    rect rgba(255, 150, 100, 0.1)
+    Note over Client,HW: Phase 3: Steuerung der Drohne (Flight Control)
+    Client->>DC: takeoff()
+    Note right of DC: Führt Takeoff in<br/>Hintergrund-Thread aus
+    DC->>Tello: takeoff()
+    Tello->>HW: "takeoff"
+    HW-->>Tello: "ok"
+    DC->>DC: Status Update (is_flying = True)
+
+    loop RC Control Loop (Joystick / Autopilot)
+        Client->>DC: send_rc_control(lr, fb, ud, yv)
+        Note right of DC: Throttling Check<br/>(Max 20Hz / alle 50ms)
+        opt Rate limit passed
+            DC->>Tello: send_rc_control(lr, fb, ud, yv)
+            Tello->>HW: "rc lr fb ud yv"
+        end
+    end
+
+    Client->>DC: land()
+    Note right of DC: Führt Land in<br/>Hintergrund-Thread aus
+    DC->>Tello: land()
+    Tello->>HW: "land"
+    HW-->>Tello: "ok"
+    DC->>DC: Status Update (is_flying = False)
+    end
