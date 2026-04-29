@@ -530,14 +530,16 @@ def main():
                         logger.info("[Main] DATA COLLECTION: %s", 'ACTIVE' if data_collection_active else 'OFF')
                     elif event.key == pygame.K_F9:
                         if flight_recorder.is_recording:
-                            path = flight_recorder.stop_recording()
-                            if path:
-                                print(f"[FlightRecorder] Saved: {path}")
+                            flight_recorder.stop_recording()
+                            print("[FlightRecorder] Recording stopped.")
                         else:
-                            if flight_recorder.is_replaying:
-                                flight_recorder.stop_replay()
                             flight_recorder.start_recording()
-                            print("[FlightRecorder] Recording started...")
+                            print("[FlightRecorder] Recording started!")
+                    elif event.key == pygame.K_F12:
+                        # F12: Switch to downward camera
+                        logger.info("[Main] F12 pressed — Switching to downward camera")
+                        print("[Main] F12: Switching to downward camera...")
+                        controller.set_camera_direction(1)  # 1 = downward camera
                     elif event.key == pygame.K_F10:
                         if flight_recorder.is_replaying:
                             flight_recorder.stop_replay()
@@ -632,15 +634,17 @@ def main():
                     controller.send_rc_control(0, 0, 0, 0)
             elif autopilot.active and vision_thread and not calibration.active and not joy_calib.active:
                 # --- Camera switching for downward camera phases ---
-                if autopilot.phase != _last_autopilot_phase:
-                    if autopilot.phase == "CENTER":
-                        logger.info("[Main] Phase transition to CENTER — switching to downward camera")
-                        controller.set_camera_direction(1)  # 1 = downward camera
-                    elif _last_autopilot_phase == "CENTER" or _last_autopilot_phase == "DESCENT":
-                        if autopilot.phase == "DONE":
-                            logger.info("[Main] Phase transition to DONE — switching back to forward camera")
-                            controller.set_camera_direction(0)  # 0 = forward camera
-                    _last_autopilot_phase = autopilot.phase
+                # NOTE: Disabled for now - camera switching breaks H.264 decoder
+                # To use downward autopilot: manually switch to downward camera first (or position drone manually)
+                # if autopilot.phase != _last_autopilot_phase:
+                #     if autopilot.phase == "CENTER":
+                #         logger.info("[Main] Phase transition to CENTER — switching to downward camera")
+                #         controller.set_camera_direction(1)  # 1 = downward camera
+                #     elif _last_autopilot_phase == "CENTER" or _last_autopilot_phase == "DESCENT":
+                #         if autopilot.phase == "DONE":
+                #             logger.info("[Main] Phase transition to DONE — switching back to forward camera")
+                #             controller.set_camera_direction(0)  # 0 = forward camera
+                #     _last_autopilot_phase = autopilot.phase
 
                 # Only compute PID when we have a new frame to prevent derivative spikes
                 if is_new_frame:
@@ -672,7 +676,10 @@ def main():
                 display_frame = draw_detections(display_frame, current_detections)
                 if current_pose and vision_thread:
                     # Use captured pose
-                    display_frame = vision_thread.pose_estimator.draw_estimate(display_frame, current_pose)
+                    is_align = autopilot.active and autopilot.phase == "ALIGN"
+                    display_frame = vision_thread.pose_estimator.draw_estimate(
+                        display_frame, current_pose, show_heatmap=is_align
+                    )
                 
                     
                 if is_new_frame:

@@ -367,6 +367,9 @@ class DroneController:
         Switch camera direction.
         direction: 0 = forward/RGB (1080x720), 1 = downward/IR (320x240)
         Returns True if successful.
+
+        NOTE: Does NOT restart video stream to avoid H.264 decoder corruption
+        when switching between different resolutions.
         """
         if not (self.is_connected and self.tello):
             logger.warning("[Drone] Cannot switch camera — not connected")
@@ -375,16 +378,9 @@ class DroneController:
         try:
             logger.info("[Drone] Switching camera to direction=%d", direction)
             self.tello.set_video_direction(direction)
-            time.sleep(0.5)  # Give camera time to switch
-
-            # Restart video stream to ensure frames from new camera
-            ok = self._restart_video_stream(reason="camera_switch")
-            if ok:
-                logger.info("[Drone] Camera switch successful")
-                return True
-            else:
-                logger.warning("[Drone] Camera switch — stream restart failed")
-                return False
+            time.sleep(1.0)  # Give camera time to switch and stabilize
+            logger.info("[Drone] Camera switch successful")
+            return True
         except BaseException as e:
             logger.exception("[Drone] Camera switch failed: %s", e)
             print(f"[Drone] Camera switch failed: {e}")

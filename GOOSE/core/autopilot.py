@@ -188,6 +188,18 @@ class AutoPilot:
             logger.info("[AutoPilot] DISENGAGED")
         return self.active
 
+    def engage_downward(self):
+        """Engage downward camera autopilot (CENTER phase only, for manual positioning)."""
+        self.active = True
+        self.phase = PHASE_CENTER
+        self._center_stable_since = None
+        self._descent_start_time = None
+        self._last_pose_time = time.monotonic()
+        self._no_track_since = None
+        print("[AutoPilot] ENGAGED DOWNWARD — Phase: CENTER (ring centering)")
+        logger.info("[AutoPilot] ENGAGED DOWNWARD")
+        return True
+
     def disengage(self):
         if self.active:
             self.active = False

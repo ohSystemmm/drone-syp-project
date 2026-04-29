@@ -6,7 +6,7 @@ class ObjectDetector:
         """
         Initialize the Object Detector.
         Supports both .pt (PyTorch) and .onnx (ONNX) models via Ultralytics API.
-        
+
         :param model_path: Path to the .pt or .onnx model file.
         """
         self.model_path = model_path
@@ -15,7 +15,7 @@ class ObjectDetector:
 
     def load_model(self):
         """
-        Loads the model. 
+        Loads the model.
         """
         print(f"Loading model from {self.model_path}...")
         try:
@@ -38,12 +38,9 @@ class ObjectDetector:
         if self.model is None:
             return frame, []
 
-        # Use .predict instead of .track to avoid 'lap' dependency
         results = self.model.predict(frame, conf=conf_threshold, verbose=False)
-        
+
         detections = []
-        # plot() returns the image in BGR
-        annotated_frame = results[0].plot() 
 
         for result in results:
             for box in result.boxes:
@@ -51,20 +48,11 @@ class ObjectDetector:
                 conf = float(box.conf[0])
                 cls = int(box.cls[0])
                 name = self.model.names[cls]
-                
-                # track_id is not available in .predict mode
+
                 track_id = None
 
-                # Calculate center
                 cx = int((x1 + x2) / 2)
                 cy = int((y1 + y2) / 2)
-
-                if draw_center:
-                    # Draw a bright green circle at the center
-                    cv2.circle(annotated_frame, (cx, cy), 5, (0, 255, 0), -1)
-                    # Optional: Draw coordinates text
-                    cv2.putText(annotated_frame, f"{cx},{cy}", (cx + 10, cy), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
                 detections.append({
                     'box': [int(x1), int(y1), int(x2), int(y2)],
@@ -75,4 +63,4 @@ class ObjectDetector:
                     'track_id': track_id
                 })
 
-        return annotated_frame, detections
+        return frame, detections

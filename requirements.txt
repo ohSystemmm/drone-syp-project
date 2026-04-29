@@ -1,8 +1,10 @@
 numpy
-opencv-python
+opencv-contrib-python
 djitellopy
 pygame
 kivy
 ultralytics
 onnxruntime
 python-dotenv
+panda3d
+panda3d-gltf
