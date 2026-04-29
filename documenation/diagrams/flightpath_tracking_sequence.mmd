@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    participant UI
+    participant Backend
+    participant Drone
+
+    Note over UI, Drone: Initiation
+    UI->>Backend: trigger_record()
+    Backend->>Drone: cmd_start_logging()
+    Drone-->>Backend: ack_started
+
+    Note over Drone: Flight Operations
+    Drone->>Drone: Log GPS/Telemetry to Buffer
+
+    Note over UI, Drone: Shutdown / Landing Sequence
+    Drone->>Drone: Land or System Shutdown
+    
+
+    Note right of Drone: Data Transfer Phase
+    Drone->>Backend: stream_flight_data()
+    Backend->>Backend: write_to_local_storage(file_path)
+
+
+    Backend-->>UI: notify_save_complete()

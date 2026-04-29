@@ -1,0 +1,48 @@
+sequenceDiagram
+    participant U as User / Main
+    participant C as TelloController
+    participant S as UDP Socket
+    participant D as Tello Drohne
+ 
+    Note over U, D: Phase 1: Initialisierung
+    U->>C: Instanziierung (Adresse, Port)
+    activate C
+    C->>C: __init__() (Socket erstellen)
+    C->>S: send("command")
+    S->>D: UTF-8 "command"
+    deactivate C
+ 
+    Note over U, D: Phase 2: LED Logik (Beispiel: send_pattern)
+    U->>C: send_pattern(pattern)
+    activate C
+    alt Länge == 64
+        C->>C: Formatierung: "EXT mled g ..."
+        Note over C, S: Backend Kommunikation
+        C->>S: send_command(cmd)
+        activate S
+        S->>S: UTF-8 Encoding
+        critical UDP Transfer
+            S->>D: Sende Paket
+        option Erfolg
+            S-->>U: Konsole: "Gesendet [cmd]"
+        option Exception
+            S-->>U: Konsole: "Fehler beim Senden"
+        end
+        deactivate S
+    else Länge != 64
+        C-->>U: Fehler: Ungültiges Pattern
+    end
+    deactivate C
+ 
+    Note over U, D: Phase 3: Text & Clear
+    U->>C: clear_matrix()
+    activate C
+    C->>C: Generiere 64x "0"
+    C->>S: send_command("EXT mled g 000...")
+    deactivate C
+ 
+    U->>C: send_text("Hi")
+    activate C
+    C->>C: Formatierung: "EXT mled [dir] [col] ..."
+    C->>S: send_command(...)
+    deactivate C
