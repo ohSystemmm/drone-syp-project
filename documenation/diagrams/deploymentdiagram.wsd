@@ -1,0 +1,45 @@
+@startuml
+!theme plain
+skinparam shadowing false
+skinparam node {
+    BackgroundColor White
+    BorderColor Black
+}
+
+title Deployment Architecture
+
+
+
+node "Ground Control Station\n(PC / Laptop / Mobile)" as GCS <<Device>> {
+  
+  node "Python 3 Runtime" as PythonEnv <<Execution Environment>> {
+    
+    component "Frontend Subsystem" as Frontend {
+      artifact "Kivy App (GUI & HUD)"
+    }
+    
+    
+    component "Core & Control" as Core {
+      artifact "Drone Controller"
+      artifact "AutoPilot (PID/Orbit)"
+    }
+    
+    component "Vision & AI Pipeline" as Vision {
+      artifact "Vision Worker Thread"
+      artifact "YOLO Object Detector"
+      artifact "Pose Estimator"
+    }
+  }
+}
+
+node "DJI Tello TT" as Drone <<Device>> {
+  component "Drone Firmware" {
+    artifact "Flight Controller (UDP Server)"
+    artifact "Camera / Video Encoder"
+  }
+}
+
+
+Core -right-> Drone : [Control Commands]
+
+@enduml
