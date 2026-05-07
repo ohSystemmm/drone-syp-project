@@ -9,11 +9,8 @@
 #:include ui/kv/shared.kv
 
 FloatLayout:
-    Video:
+    Image:
         id: videosstream
-        source: 'ui/example-background/Video.mp4'
-        state: 'play'
-        options: {'eos': 'loop'}
         allow_stretch: True
         keep_ratio: False
         size_hint: 1, 1
@@ -83,6 +80,18 @@ FloatLayout:
             font_size: '11sp'
             bold: True
             color: (0.95, 0.95, 0.95, 1)
+
+    VirtualJoystick:
+        id: left_stick
+        size_hint: None, None
+        size: 150, 150
+        pos_hint: {"x": 0.05, "y": 0.05}
+        
+    VirtualJoystick:
+        id: right_stick
+        size_hint: None, None
+        size: 150, 150
+        pos_hint: {"right": 0.95, "y": 0.05}
 
     Bottom:
         id: footer

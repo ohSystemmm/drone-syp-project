@@ -42,7 +42,16 @@ class Icons:
     four_k = "\U000F0E14"          # mdi-quality-high (for 4K badge)
     clock = "\U000F0954"           # mdi-clock-outline
     file_size = "\U000F0224"       # mdi-file (for file size display)
-    calendar = "\U000F00ED"        # mdi-calendar
+    calendar = "\U000F00ED"
+    led = "\U000F0337"
+    target = "\U000F0A31"
+    file_document = "\U000F0223"
+    tune = "\U000F05B0"
+    # Drone Manager icons
+    quadcopter = "\U000F0C85"       # mdi-quadcopter / rotate-3d-variant
+    pencil = "\U000F03EB"           # mdi-pencil
+    plus = "\U000F0415"             # mdi-plus
+        # mdi-calendar
 
     @classmethod
     def get_battery_icon(cls, percentage_str):

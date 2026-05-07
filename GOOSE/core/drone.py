@@ -105,8 +105,8 @@ class DroneController:
 
             # Set resolution and FPS BEFORE streamon for consistent behavior
             self.tello.set_video_resolution(Tello.RESOLUTION_720P)
-            # 15 FPS reduces packet loss while keeping ring detection quality at 720p.
-            self.tello.set_video_fps(Tello.FPS_15)
+            # 30 FPS ensures PyAV gets enough frames to start decoding without throwing ExitError
+            self.tello.set_video_fps(Tello.FPS_30)
             # Bitrate fallback: some firmware/AP combos reject specific bitrate commands.
             bitrate_set = False
             for bitrate in (Tello.BITRATE_3MBPS, Tello.BITRATE_2MBPS, Tello.BITRATE_1MBPS):
@@ -142,9 +142,13 @@ class DroneController:
             return True
                 
         except BaseException as e:
-            print(f"Connection Error: {e}")
-            logger.exception("[Drone] Connection failed")
+            if "Command 'command' was unsuccessful" in str(e):
+                logger.error("[Drone] Connection failed: Drone not found or not in SDK mode (No response to 'command')")
+            else:
+                logger.exception("[Drone] Connection failed")
+            
             self.is_connected = False
+            self.tello = None # Clear stale object
             return False
 
     def _start_watchdog(self):

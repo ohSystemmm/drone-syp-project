@@ -38,6 +38,45 @@ class FilterChip(ButtonBehavior, BoxLayout):
     has_dropdown = BooleanProperty(False)
 
 
+from kivy.uix.image import Image
+from kivy.uix.video import Video
+from kivy.uix.button import Button
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+
+class LEDDrawingGrid(GridLayout):
+    def __init__(self, **kwargs):
+        kwargs.setdefault('cols', 8)
+        kwargs.setdefault('rows', 8)
+        kwargs.setdefault('spacing', 2)
+        super().__init__(**kwargs)
+        self.pixels = []
+        for i in range(64):
+            btn = Button(background_normal='', background_color=(0.1, 0.1, 0.1, 1))
+            btn.pixel_index = i
+            btn.state_color = '0' # off
+            btn.bind(on_release=self.on_pixel_press)
+            self.add_widget(btn)
+            self.pixels.append(btn)
+    
+    def on_pixel_press(self, btn):
+        # Cycle colors: 0 -> r -> b -> p -> 0
+        cycle = {'0': ('r', (1, 0, 0, 1)), 
+                 'r': ('b', (0, 0, 1, 1)), 
+                 'b': ('p', (0.5, 0, 0.5, 1)), 
+                 'p': ('0', (0.1, 0.1, 0.1, 1))}
+        new_state, new_color = cycle[btn.state_color]
+        btn.state_color = new_state
+        btn.background_color = new_color
+
+    def get_pattern_string(self):
+        return "".join(p.state_color for p in self.pixels)
+
+    def clear_grid(self):
+        for p in self.pixels:
+            p.state_color = '0'
+            p.background_color = (0.1, 0.1, 0.1, 1)
+
 class MediaGallery(FloatLayout):
     """Full-screen Media Gallery overlay."""
     is_open = BooleanProperty(False)
@@ -73,6 +112,80 @@ class MediaGallery(FloatLayout):
         """Initialize the gallery content."""
         self.is_open = True
         self.load_recordings()
+        self.update_storage_stats()
+
+    def update_storage_stats(self):
+        """Calculate real storage usage from the recordings directory."""
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        rec_dir = os.path.join(base_dir, "recordings")
+        if not os.path.exists(rec_dir):
+            rec_dir = os.path.join(os.path.dirname(base_dir), "recordings")
+        
+        total_size = 0
+        if os.path.exists(rec_dir):
+            for f in os.listdir(rec_dir):
+                fp = os.path.join(rec_dir, f)
+                if os.path.isfile(fp):
+                    total_size += os.path.getsize(fp)
+
+        if total_size >= 1024 * 1024 * 1024:
+            self.storage_used = f"{total_size / (1024**3):.1f} GB"
+        elif total_size >= 1024 * 1024:
+            self.storage_used = f"{total_size / (1024**2):.1f} MB"
+        else:
+            self.storage_used = f"{total_size / 1024:.1f} KB"
+
+        # Limit to 2GB for the UI bar
+        self.storage_percent = min(total_size / (2.0 * 1024**3), 1.0)
+
+    def sync_from_drone(self):
+        """Simulate syncing media from drone (placeholder for actual FTP pull if needed)."""
+        app = App.get_running_app()
+        if app.controller.is_connected:
+            print("[Gallery] Syncing media from drone...")
+            # Tello doesn't support easy media pull via SDK (usually manual SD card)
+            # but we can refresh local recordings list
+            self.load_recordings()
+            self.update_storage_stats()
+
+    def cloud_backup(self):
+        """Trigger a cloud backup of all recordings."""
+        print("[Gallery] Starting Cloud Backup...")
+        # Placeholder for actual upload logic
+
+    def download_selected(self):
+        print("[Gallery] Downloading selected items...")
+
+    def favorite_selected(self):
+        print("[Gallery] Favoriting selected items...")
+
+    def delete_selected(self):
+        print("[Gallery] Deleting selected items...")
+        grid = self._get_grid()
+        if not grid: return
+        
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        rec_dir = os.path.join(base_dir, "recordings")
+        if not os.path.exists(rec_dir):
+            rec_dir = os.path.join(os.path.dirname(base_dir), "recordings")
+            
+        cards_to_remove = []
+        for child in grid.children:
+            if isinstance(child, MediaCard) and getattr(child, 'is_selected', False) and child.filename != "Import Media":
+                cards_to_remove.append(child)
+                filepath = os.path.join(rec_dir, child.filename)
+                try:
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                except Exception as e:
+                    print(f"Failed to delete {filepath}: {e}")
+        
+        for card in cards_to_remove:
+            grid.remove_widget(card)
+        
+        self.selected_count = 0
+        self.selection_mode = False
+        self.update_storage_stats()
 
     def toggle_selection_mode(self):
         self.selection_mode = not self.selection_mode
@@ -88,6 +201,21 @@ class MediaGallery(FloatLayout):
     def set_active_nav(self, nav_name):
         self.active_nav = nav_name
 
+    def on_active_nav(self, instance, value):
+        sm = self.ids.get('content_manager')
+        if sm:
+            if value == "Drone LED":
+                sm.current = "LED"
+            elif value == "Drone Fleet":
+                # Close the gallery and open the DroneManager overlay
+                app = App.get_running_app()
+                self.parent.remove_widget(self)
+                app._gallery = None
+                app.on_action("DRONES")
+            else:
+                sm.current = "Media"
+                self.load_recordings()
+
     def _get_grid(self):
         """Find the media grid widget by id."""
         try:
@@ -96,7 +224,7 @@ class MediaGallery(FloatLayout):
             return None
 
     def load_recordings(self):
-        """Scan the recordings directory and populate the media grid."""
+        """Scan the recordings directory and populate the media grid with filters."""
         grid = self._get_grid()
         if not grid:
             return
@@ -112,10 +240,32 @@ class MediaGallery(FloatLayout):
         files = []
         total_size = 0
 
+        # Define category filters
+        show_all = self.active_nav == "All Media"
+        show_photos = self.active_nav == "Photos"
+        show_videos = self.active_nav == "Videos"
+        show_favorites = self.active_nav == "Favorites"
+
         if os.path.exists(rec_dir):
             for f in sorted(os.listdir(rec_dir), reverse=True):
                 filepath = os.path.join(rec_dir, f)
                 if os.path.isfile(filepath):
+                    is_video = f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))
+                    is_photo = f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))
+                    is_log = f.lower().endswith('.json')
+                    
+                    # Filtering logic
+                    if self.active_nav == "Flight Logs":
+                        if not is_log: continue
+                    elif not show_all:
+                        if show_photos and not is_photo: continue
+                        if show_videos and not is_video: continue
+                        # Favorites placeholder check (assuming we don't have a DB yet, just show none)
+                        if show_favorites: continue 
+                    else:
+                        # In "All Media", ignore .json logs to avoid clutter, unless specifically asked
+                        if is_log: continue 
+
                     stat = os.stat(filepath)
                     size_bytes = stat.st_size
                     total_size += size_bytes
@@ -197,3 +347,54 @@ class MediaGallery(FloatLayout):
                     1 for c in grid.children
                     if isinstance(c, MediaCard) and c.is_selected
                 )
+        else:
+            self.view_media(card.filename)
+
+    def view_media(self, filename):
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        rec_dir = os.path.join(base_dir, "recordings")
+        if not os.path.exists(rec_dir):
+            rec_dir = os.path.join(os.path.dirname(base_dir), "recordings")
+        
+        filepath = os.path.join(rec_dir, filename)
+        if not os.path.exists(filepath): return
+
+        viewer = self.ids.media_viewer
+        viewer.source = filepath
+        viewer.active = True
+        
+        content = self.ids.viewer_content
+        content.clear_widgets()
+        
+        is_video = filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))
+        is_log = filename.lower().endswith('.json')
+        if is_video:
+            v = Video(source=filepath, state='play', options={'eos': 'loop'})
+            content.add_widget(v)
+        elif is_log:
+            # Simple text display for the log
+            try:
+                import json
+                with open(filepath, 'r') as f:
+                    log_data = json.load(f)
+                text = json.dumps(log_data, indent=2)
+            except Exception as e:
+                text = f"Error reading log:\n{e}"
+            from kivy.uix.label import Label
+            lbl = Label(text=text, font_size='11sp', color=(0.8, 0.9, 1, 1), 
+                        text_size=(content.width - 40, None), 
+                        halign='left', valign='top')
+            lbl.bind(width=lambda *x: lbl.setter('text_size')(lbl, (lbl.width, None)))
+            lbl.bind(texture_size=lbl.setter('size'))
+            from kivy.uix.scrollview import ScrollView
+            sv = ScrollView(size_hint=(1, 1))
+            sv.add_widget(lbl)
+            content.add_widget(sv)
+        else:
+            img = Image(source=filepath)
+            content.add_widget(img)
+
+    def close_viewer(self):
+        viewer = self.ids.media_viewer
+        viewer.active = False
+        self.ids.viewer_content.clear_widgets()
