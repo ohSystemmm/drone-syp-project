@@ -281,7 +281,7 @@ class AutoPilot:
 
         lr = self._apply_min_speed(self.pid_lr.compute(x_dz))
         ud_raw = self._apply_min_speed(-self.pid_ud.compute(y_dz))
-        fb = self._apply_min_speed(self.pid_fb.compute(z_dz))
+        fb = 0 # Don't adjust distance during ALIGN, just focus on centering
 
         # Rate-limit UD to prevent violent dives when pose first appears
         MAX_UD_CHANGE = 15
@@ -297,15 +297,13 @@ class AutoPilot:
             yv = 0
             self.pid_yaw.reset()
 
-        # Don't push forward unless reasonably centered
-        if abs(x_err) > self.ALIGN_X_TOL * 2 or abs(y_err) > self.ALIGN_Y_TOL * 2:
-            fb = 0
+        # Ensure fb is 0 so it hovers in place while aligning
+        fb = 0
 
-        # Check alignment
+        # Check alignment (Ignoring Z distance so it punches from anywhere)
         aligned = (
             abs(x_err) < self.ALIGN_X_TOL
             and abs(y_err) < self.ALIGN_Y_TOL
-            and abs(z_err) < self.ALIGN_Z_TOL
             and pose.angle_deg < self.ALIGN_ANGLE_TOL
             and pose.confidence >= self.ALIGN_MIN_CONF
         )
@@ -314,7 +312,7 @@ class AutoPilot:
             if self._align_stable_since is None:
                 self._align_stable_since = now
             elif (now - self._align_stable_since) >= self.ALIGN_HOLD_TIME:
-                self._transition_to_approach()
+                self._transition_to_punch(now, pose.z_cm)
         else:
             self._align_stable_since = None
 
@@ -586,6 +584,16 @@ class AutoPilot:
 
     # --- Transitions ---
 
+    def _transition_to_punch(self, now, distance_cm):
+        print(f"[AutoPilot] Target Locked at {distance_cm:.0f}cm! -> PUNCH")
+        logger.info("[AutoPilot] ALIGN -> PUNCH")
+        self.phase = PHASE_PUNCH
+        self._punch_start_time = now
+        
+        # Calculate dynamic punch duration. Tello speed 100 is approx 100cm/sec.
+        # Add 1.5 seconds of extra push to ensure it goes all the way through the ring.
+        self.PUNCH_DURATION = max(1.5, (distance_cm / 100.0) + 1.5)
+        
     def _transition_to_approach(self):
         print("[AutoPilot] Target Locked! -> APPROACH")
         logger.info("[AutoPilot] ALIGN -> APPROACH")

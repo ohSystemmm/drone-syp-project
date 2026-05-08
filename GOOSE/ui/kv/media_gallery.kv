@@ -1,7 +1,93 @@
 #:kivy 2.0.0
 #:import utils kivy.utils
 #:import Icons ui.icons.Icons
+#:import os os
+#:import LEDDrawingGrid ui.media_gallery.LEDDrawingGrid
 #:set margin 10
+
+<ClickableLabel@ButtonBehavior+Label>:
+<ClickableBox@ButtonBehavior+BoxLayout>:
+
+<VerticalDivider@Widget>:
+    size_hint_x: None
+    width: 1
+    canvas:
+        Color:
+            rgba: (1, 1, 1, 0.1)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<SettingGroup@BoxLayout>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: self.minimum_height
+    spacing: 10
+    title: ""
+    canvas.before:
+        Color:
+            rgba: (1, 1, 1, 0.02)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [12]
+    
+    Label:
+        text: root.title
+        font_size: '10sp'
+        bold: True
+        color: (0.4, 0.5, 0.6, 1)
+        size_hint_y: None
+        height: 24
+        text_size: self.size
+        halign: 'left'
+        padding: [15, 0, 0, 0]
+
+<CustomSettingItem@ButtonBehavior+BoxLayout>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: 50
+    padding: [15, 0, 15, 0]
+    spacing: 15
+    icon: ""
+    text: ""
+    value: ""
+    
+    canvas.before:
+        Color:
+            rgba: (1, 1, 1, 0.05) if self.state == 'down' else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [8]
+
+    Label:
+        text: root.icon
+        font_name: 'Icons'
+        font_size: '18sp'
+        color: (0.3, 0.7, 1, 1)
+        size_hint_x: None
+        width: 30
+
+    Label:
+        text: root.text
+        font_size: '14sp'
+        color: (0.9, 0.95, 1, 1)
+        text_size: self.size
+        halign: 'left'
+        valign: 'middle'
+
+    Label:
+        text: root.value
+        font_size: '13sp'
+        color: (0.5, 0.6, 0.7, 1)
+        text_size: self.size
+        halign: 'right'
+        valign: 'middle'
+
+<IconButton@ButtonBehavior+BoxLayout>:
+    # Base class for buttons that look like boxes
+    spacing: 8
 
 # ─── Media Card ──────────────────────────────────────────
 <MediaCard>:
@@ -214,12 +300,13 @@
                 valign: 'middle'
 
         # Nav Links
-        Label:
+        ClickableLabel:
             text: "Dashboard"
             font_size: '13sp'
             color: (0.5, 0.55, 0.65, 1)
             size_hint_x: None
             width: 80
+            on_release: app.close_media_gallery()
 
         Label:
             text: "Media Gallery"
@@ -229,19 +316,21 @@
             size_hint_x: None
             width: 100
 
-        Label:
+        ClickableLabel:
             text: "Flight Logs"
             font_size: '13sp'
             color: (0.5, 0.55, 0.65, 1)
             size_hint_x: None
             width: 80
+            on_release: root.set_active_nav("Flight Logs")
 
-        Label:
+        ClickableLabel:
             text: "Settings"
             font_size: '13sp'
             color: (0.5, 0.55, 0.65, 1)
             size_hint_x: None
             width: 60
+            on_release: root.set_active_nav("Settings")
 
         Widget:
 
@@ -280,11 +369,12 @@
                 valign: 'middle'
 
         # Sync Button
-        BoxLayout:
+        ClickableBox:
             size_hint_x: None
             width: 160
             padding: [14, 6, 14, 6]
             spacing: 8
+            on_release: root.sync_from_drone()
             canvas.before:
                 Color:
                     rgba: (0, 0.45, 0.75, 1)
@@ -453,9 +543,28 @@
                 is_active: root.active_nav == "Favorites"
                 on_release: root.set_active_nav("Favorites")
 
+            NavItem:
+                icon: Icons.quadcopter
+                text: "Drone Fleet"
+                is_active: root.active_nav == "Drone Fleet"
+                on_release: root.set_active_nav("Drone Fleet")
+
+            NavItem:
+                icon: Icons.cog
+                text: "General Settings"
+                is_active: root.active_nav == "Settings"
+                on_release: root.set_active_nav("Settings")
+
+            NavItem:
+                icon: Icons.led
+                text: "Drone LED"
+                is_active: root.active_nav == "Drone LED"
+                on_release: root.set_active_nav("Drone LED")
+
             Widget:
                 size_hint_y: None
                 height: 20
+
 
             # STORAGE section
             Label:
@@ -502,7 +611,8 @@
             Widget:
 
             # Cloud Backup button
-            BoxLayout:
+            ClickableBox:
+                on_release: root.cloud_backup()
                 orientation: 'horizontal'
                 size_hint_y: None
                 height: 42
@@ -533,177 +643,275 @@
                     valign: 'middle'
 
         # ─── MAIN CONTENT AREA ────────────────
-        BoxLayout:
-            orientation: 'vertical'
-            padding: [28, 20, 28, 70]
-            spacing: 16
+        FloatLayout:
+            ScreenManager:
+                id: content_manager
+                # current set in Python on_active_nav
 
-            # Title Row
-            BoxLayout:
-                orientation: 'horizontal'
-                size_hint_y: None
-                height: 60
-
-                BoxLayout:
-                    orientation: 'vertical'
-                    spacing: 4
-
-                    Label:
-                        text: "Media Gallery"
-                        font_size: '26sp'
-                        bold: True
-                        color: (1, 1, 1, 1)
-                        text_size: self.size
-                        halign: 'left'
-                        valign: 'bottom'
-
-                    Label:
-                        text: "Manage your aerial captures and drone telemetry media."
-                        font_size: '12sp'
-                        color: (0.45, 0.5, 0.6, 1)
-                        text_size: self.size
-                        halign: 'left'
-                        valign: 'top'
-
-                Widget:
-
-                # Selection Mode + View toggle
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint: None, None
-                    size: 220, 36
-                    pos_hint: {"center_y": 0.5}
-                    spacing: 10
-
+                Screen:
+                    name: "Media"
                     BoxLayout:
-                        size_hint_x: None
-                        width: 148
-                        padding: [12, 4, 12, 4]
-                        spacing: 6
-                        canvas.before:
-                            Color:
-                                rgba: (0.08, 0.12, 0.2, 0.9)
-                            RoundedRectangle:
-                                pos: self.pos
-                                size: self.size
-                                radius: [18]
+                        orientation: 'vertical'
+                        padding: [28, 20, 28, 70]
+                        spacing: 16
+                        # ... (existing media layout) ...
 
-                        Label:
-                            text: Icons.filter_variant
-                            font_name: 'Icons'
-                            font_size: '14sp'
-                            color: (0.4, 0.6, 0.85, 1)
-                            size_hint_x: None
-                            width: 18
-
-                        Label:
-                            text: "Selection Mode"
-                            font_size: '11sp'
-                            color: (0.7, 0.8, 0.9, 1)
-
+                Screen:
+                    name: "Settings"
                     BoxLayout:
-                        size_hint_x: None
-                        width: 56
-                        padding: [4, 4, 4, 4]
-                        spacing: 2
-                        canvas.before:
-                            Color:
-                                rgba: (0.08, 0.12, 0.2, 0.9)
-                            RoundedRectangle:
-                                pos: self.pos
-                                size: self.size
-                                radius: [8]
-
+                        orientation: 'vertical'
+                        padding: [40, 20, 40, 70]
+                        spacing: 24
+                        
                         Label:
-                            text: Icons.view_grid
-                            font_name: 'Icons'
-                            font_size: '16sp'
-                            color: (0.3, 0.65, 1, 1)
+                            text: "General Settings"
+                            font_size: '26sp'
+                            bold: True
+                            color: (1, 1, 1, 1)
+                            size_hint_y: None
+                            height: 40
+                            text_size: self.size
+                            halign: 'left'
+                        
+                        ScrollView:
+                            do_scroll_x: False
+                            BoxLayout:
+                                orientation: 'vertical'
+                                size_hint_y: None
+                                height: self.minimum_height
+                                spacing: 20
+                                
+                                # Connection Group
+                                SettingGroup:
+                                    title: "CONNECTION"
+                                    
+                                    CustomSettingItem:
+                                        icon: Icons.wifi
+                                        text: "Drone IP Address"
+                                        value: app.args.ip if app.args else "192.168.10.1"
+                                        on_release: app.on_action("EDIT_IP")
+                                    
+                                    CustomSettingItem:
+                                        icon: Icons.sync
+                                        text: "UDP Port"
+                                        value: str(app.args.port if app.args else 8889)
+                                
+                                # Vision Group
+                                SettingGroup:
+                                    title: "AI VISION"
+                                    
+                                    CustomSettingItem:
+                                        icon: Icons.eye
+                                        text: "Toggle Vision System"
+                                        value: "PAUSED" if app.vision_thread and getattr(app.vision_thread, 'is_paused', False) else "ACTIVE"
+                                        on_release: app.on_action("TOGGLE_VISION")
+                                        
+                                    CustomSettingItem:
+                                        icon: Icons.target
+                                        text: "Confidence Threshold"
+                                        value: f"{app.conf_threshold:.2f}"
+                                        on_release: app.on_action("CYCLE_CONF")
+                                    
+                                    CustomSettingItem:
+                                        icon: Icons.file_document
+                                        text: "Model Type"
+                                        value: app.args.model.upper() if app.args else "AUTO"
+                                
+                                # Flight Group
+                                SettingGroup:
+                                    title: "FLIGHT & CALIBRATION"
+                                    
+                                    CustomSettingItem:
+                                        icon: Icons.camera
+                                        text: "Downward Camera"
+                                        value: "OFF"
+                                        on_release: app.on_action("CAM")
+                                    
+                                    CustomSettingItem:
+                                        icon: Icons.tune
+                                        text: "Visual Calibration"
+                                        value: "START"
+                                        on_release: app.on_action("CALIB_VIS")
 
+                Screen:
+                    name: "LED"
+                    BoxLayout:
+                        orientation: 'vertical'
+                        padding: [40, 20, 40, 70]
+                        spacing: 24
+                        
                         Label:
-                            text: Icons.view_list
-                            font_name: 'Icons'
-                            font_size: '16sp'
-                            color: (0.4, 0.5, 0.6, 1)
+                            text: "Drone LED Matrix Control"
+                            font_size: '26sp'
+                            bold: True
+                            color: (1, 1, 1, 1)
+                            size_hint_y: None
+                            height: 40
+                            text_size: self.size
+                            halign: 'left'
+                        
+                        BoxLayout:
+                            orientation: 'horizontal'
+                            spacing: 30
+                            
+                            # Left side: Drawing Grid
+                            BoxLayout:
+                                orientation: 'vertical'
+                                spacing: 10
+                                size_hint_x: 0.5
+                                
+                                Label:
+                                    text: "MANUAL DRAWING"
+                                    font_size: '10sp'
+                                    bold: True
+                                    color: (0.4, 0.5, 0.6, 1)
+                                    size_hint_y: None
+                                    height: 16
+                                    text_size: self.size
+                                    halign: 'left'
 
-            # Filter Chips Row
+                                LEDDrawingGrid:
+                                    id: led_grid
+                                    size_hint: None, None
+                                    size: 240, 240
+                                
+                                BoxLayout:
+                                    orientation: 'horizontal'
+                                    size_hint_y: None
+                                    height: 40
+                                    spacing: 10
+                                    
+                                    Button:
+                                        text: "CLEAR GRID"
+                                        on_release: led_grid.clear_grid()
+                                    Button:
+                                        text: "SEND PATTERN"
+                                        background_color: (0.2, 0.7, 0.4, 1)
+                                        on_release: app.on_action("LED_PATTERN_CUSTOM", led_grid.get_pattern_string())
+
+                            # Right side: Presets & Text
+                            BoxLayout:
+                                orientation: 'vertical'
+                                spacing: 20
+                                size_hint_x: 0.5
+                                
+                                # Text Scrolling Section
+                                BoxLayout:
+                                    orientation: 'vertical'
+                                    size_hint_y: None
+                                    height: 120
+                                    spacing: 12
+                                    padding: [20, 15, 20, 15]
+                                    canvas.before:
+                                        Color:
+                                            rgba: (16/255, 22/255, 36/255, 1)
+                                        RoundedRectangle:
+                                            pos: self.pos
+                                            size: self.size
+                                            radius: [12]
+
+                                    Label:
+                                        text: "SCROLL TEXT"
+                                        font_size: '10sp'
+                                        bold: True
+                                        color: (0.4, 0.5, 0.6, 1)
+                                        size_hint_y: None
+                                        height: 16
+                                        text_size: self.size
+                                        halign: 'left'
+
+                                    BoxLayout:
+                                        orientation: 'horizontal'
+                                        spacing: 12
+                                        
+                                        TextInput:
+                                            id: led_text_input
+                                            hint_text: "Type something..."
+                                            multiline: False
+                                            padding: [12, 12]
+                                            background_normal: ''
+                                            background_color: (10/255, 15/255, 25/255, 1)
+                                            foreground_color: (1, 1, 1, 1)
+                                            font_size: '14sp'
+                                        
+                                        Button:
+                                            text: "SEND"
+                                            size_hint_x: None
+                                            width: 80
+                                            background_color: (0, 0.45, 0.8, 1)
+                                            on_release: app.on_action("LED_TEXT", led_text_input.text)
+
+                                # Patterns Section
+                                Label:
+                                    text: "PRESET PATTERNS"
+                                    font_size: '10sp'
+                                    bold: True
+                                    color: (0.4, 0.5, 0.6, 1)
+                                    size_hint_y: None
+                                    height: 16
+                                    text_size: self.size
+                                    halign: 'left'
+
+                                GridLayout:
+                                    cols: 2
+                                    spacing: 10
+                                    size_hint_y: None
+                                    height: 120
+                                    
+                                    Button:
+                                        text: "HEART"
+                                        on_release: app.on_action("LED_PATTERN", "heart")
+                                    Button:
+                                        text: "SMILE"
+                                        on_release: app.on_action("LED_PATTERN", "smile")
+                                    Button:
+                                        text: "ARROW"
+                                        on_release: app.on_action("LED_PATTERN", "arrow")
+                                    Button:
+                                        text: "GOOSE"
+                                        on_release: app.on_action("LED_PATTERN", "goose")
+                                
+                                Widget: # Spacer
+
+            # ─── MEDIA VIEWER OVERLAY ────────────────
             BoxLayout:
-                orientation: 'horizontal'
-                size_hint_y: None
-                height: 38
-                spacing: 10
-
-                FilterChip:
-                    text: "All Items"
-                    is_active: True
-
-                FilterChip:
-                    text: "Today"
-                    has_dropdown: True
-
-                FilterChip:
-                    text: "Resolution"
-                    has_dropdown: True
-
-                FilterChip:
-                    text: "File Type"
-                    has_dropdown: True
-
-                Widget:
-
-            # ─── Scrollable Media Grid ────────
-            ScrollView:
-                do_scroll_x: False
-                bar_width: 6
-                bar_color: (0.2, 0.4, 0.6, 0.5)
-                bar_inactive_color: (0.15, 0.2, 0.3, 0.3)
-
-                GridLayout:
-                    id: media_grid
-                    cols: 4
-                    spacing: 16
-                    padding: [0, 8, 0, 8]
-                    size_hint_y: None
-                    height: self.minimum_height
-                    col_default_width: 200
-                    row_default_height: 220
-
-            # Load More + Counter
-            BoxLayout:
+                id: media_viewer
+                active: False
+                source: ""
+                opacity: 1 if self.active else 0
+                disabled: not self.active
+                pos_hint: {'x': 0, 'y': 0}
+                size_hint: 1, 1
                 orientation: 'vertical'
-                size_hint_y: None
-                height: 70
-                spacing: 8
+                canvas.before:
+                    Color:
+                        rgba: (0, 0, 0, 0.95)
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+                
+                BoxLayout:
+                    size_hint_y: None
+                    height: 50
+                    padding: [20, 5]
+                    spacing: 20
+                    
+                    Label:
+                        text: os.path.basename(root.ids.media_viewer.source) if root.ids.media_viewer.source else ""
+                        bold: True
+                        halign: 'left'
+                        text_size: self.size
+                    
+                    Button:
+                        text: Icons.close + " CLOSE"
+                        font_name: 'Icons'
+                        size_hint_x: None
+                        width: 100
+                        on_release: root.close_viewer()
 
                 BoxLayout:
-                    size_hint: None, None
-                    size: 200, 36
-                    pos_hint: {"center_x": 0.5}
-                    canvas.before:
-                        Color:
-                            rgba: (0.1, 0.14, 0.22, 1)
-                        RoundedRectangle:
-                            pos: self.pos
-                            size: self.size
-                            radius: [18]
-                        Color:
-                            rgba: (0.2, 0.28, 0.4, 0.6)
-                        Line:
-                            rounded_rectangle: [self.x, self.y, self.width, self.height, 18]
-                            width: 1
-
-                    Label:
-                        text: "Load More Captures"
-                        font_size: '12sp'
-                        bold: True
-                        color: (0.75, 0.8, 0.9, 1)
-
-                Label:
-                    text: "SHOWING " + str(root.shown_items) + " OF " + str(root.total_items) + " ITEMS"
-                    font_size: '10sp'
-                    color: (0.35, 0.4, 0.5, 1)
-                    size_hint_y: None
-                    height: 20
+                    id: viewer_content
+                    padding: 40
 
     # ===== BOTTOM ACTION BAR =====
     BoxLayout:
@@ -765,7 +973,8 @@
             pos_hint: {"center_y": 0.5}
 
         # Download
-        BoxLayout:
+        ClickableBox:
+            on_release: root.download_selected()
             orientation: 'horizontal'
             size_hint_x: None
             width: 90
@@ -785,7 +994,8 @@
                 color: (0.2, 0.65, 1, 1)
 
         # Favorite
-        BoxLayout:
+        ClickableBox:
+            on_release: root.favorite_selected()
             orientation: 'horizontal'
             size_hint_x: None
             width: 80
@@ -805,7 +1015,8 @@
                 color: (0.85, 0.85, 0.9, 1)
 
         # Delete
-        BoxLayout:
+        ClickableBox:
+            on_release: root.delete_selected()
             orientation: 'horizontal'
             size_hint_x: None
             width: 70

@@ -60,27 +60,30 @@
         spacing: 14
 
         Label:
-            text: Icons.check_circle
+            text: Icons.check_circle if root.is_connected else Icons.alert_circle
             font_name: 'Icons'
             font_size: '16sp'
-            color: (0.1, 0.3, 0.1, 1)
+            color: (0.1, 0.3, 0.1, 1) if root.is_connected else (0.8, 0.2, 0.2, 1)
             size_hint_x: None
             width: 24
             canvas.before:
                 Color:
-                    rgba: (0.2, 0.85, 0.4, 1)
+                    rgba: (0.2, 0.85, 0.4, 1) if root.is_connected else (1, 0.4, 0.4, 1)
                 RoundedRectangle:
                     pos: self.center_x - 12, self.center_y - 12
                     size: 24, 24
                     radius: [12]
 
-        Label:
-            text: "READY TO FLY"
+        Button:
+            text: root.status_text
             font_size: '15sp'
             bold: True
             color: (1, 1, 1, 1)
+            background_normal: ''
+            background_color: (0, 0, 0, 0)
             size_hint_x: None
             width: self.texture_size[0]
+            on_release: app.on_action("RECONNECT")
 
         VerticalDivider:
             size_hint_y: 0.5
@@ -101,13 +104,24 @@
             icon: Icons.wifi
             icon_color: (0.2, 0.6, 1, 1)
             title: "SIGNAL"
-            value: "88%"
+            value: root.wifi_signal
 
         StatusIcon:
             icon: Icons.get_battery_icon(self.value)
             icon_color: (1, 0.8, 0, 1)
             title: "BATTERY"
-            value: "74%"
+            value: root.battery_level
+
+        Button:
+            text: Icons.quadcopter
+            font_name: 'Icons'
+            font_size: '22sp'
+            color: (0.2, 0.8, 0.6, 1) if self.state == 'normal' else (0.4, 1, 0.8, 1)
+            background_normal: ''
+            background_color: (0, 0, 0, 0)
+            size_hint_x: None
+            width: 36
+            on_release: app.on_action("DRONES")
 
         Button:
             text: Icons.cog
