@@ -119,6 +119,14 @@ class DroneApp(App):
 
     def _on_key_down(self, window, key, scancode, codepoint, modifiers, **kwargs):
         self._pressed_keys.add(key)
+        if key == 112:  # 'p' key to toggle autopilot
+            self.on_action("TOGGLE_AUTOPILOT")
+        elif key == 32:  # 'space' key to capture calibration sample
+            if self.calibration and self.calibration.active:
+                pose = self.vision_thread.latest_pose if self.vision_thread else None
+                self.calibration.record_sample(pose)
+        elif key == 27:  # 'escape' key for emergency landing
+            self.on_action("Emergency Land")
         
     def _on_key_up(self, window, key, scancode, **kwargs):
         if key in self._pressed_keys:
@@ -273,23 +281,54 @@ class DroneApp(App):
         if 119 in keys: kb_fb = speed
         elif 115 in keys: kb_fb = -speed
         
-        if 32 in keys: kb_ud = speed
+        if 32 in keys:
+            if not (self.calibration and self.calibration.active):
+                kb_ud = speed
         elif 304 in keys or 303 in keys: kb_ud = -speed
         
         if 113 in keys: kb_yv = -speed
         elif 101 in keys: kb_yv = speed
         
+        # Check for any active manual controls (keyboard, virtual sticks, physical sticks)
+        manual_input = (
+            any(v != 0 for v in [kb_lr, kb_fb, kb_ud, kb_yv]) or
+            any(v != 0 for v in [vs_lr, vs_fb, vs_ud, vs_yv]) or
+            any(v != 0 for v in joy_rc)
+        )
+
         if self.autopilot.active and self.vision_thread:
-            # Autopilot logic would go here if we wanted to replicate the main loop exactly
-            pass
-        
-        # Priority: Keyboard > Virtual joystick > Hardware joystick
-        final_rc = [
-            kb_lr if kb_lr != 0 else (vs_lr if vs_lr != 0 else joy_rc[0]),
-            kb_fb if kb_fb != 0 else (vs_fb if vs_fb != 0 else joy_rc[1]),
-            kb_ud if kb_ud != 0 else (vs_ud if vs_ud != 0 else joy_rc[2]),
-            kb_yv if kb_yv != 0 else (vs_yv if vs_yv != 0 else joy_rc[3])
-        ]
+            if manual_input:
+                self.autopilot.disengage()
+                logger.info("[Control] Autopilot disengaged due to manual input override.")
+                final_rc = [
+                    kb_lr if kb_lr != 0 else (vs_lr if vs_lr != 0 else joy_rc[0]),
+                    kb_fb if kb_fb != 0 else (vs_fb if vs_fb != 0 else joy_rc[1]),
+                    kb_ud if kb_ud != 0 else (vs_ud if vs_ud != 0 else joy_rc[2]),
+                    kb_yv if kb_yv != 0 else (vs_yv if vs_yv != 0 else joy_rc[3])
+                ]
+            else:
+                current_pose = self.vision_thread.latest_pose
+                current_detections = self.vision_thread.latest_detections
+                
+                bbox_center = current_detections[0]['center'] if current_detections else None
+                bbox_ratio = None
+                if current_detections:
+                    b = current_detections[0]['box']
+                    bw, bh = b[2] - b[0], b[3] - b[1]
+                    bbox_fully_visible = b[0] > 20 and b[1] > 20 and b[2] < 940 and b[3] < 700
+                    if bh > 0 and bbox_fully_visible:
+                        bbox_ratio = bw / bh
+                
+                final_rc = self.autopilot.compute(current_pose, bbox_center=bbox_center, bbox_ratio=bbox_ratio)
+        else:
+            # Normal manual control logic
+            # Priority: Keyboard > Virtual joystick > Hardware joystick
+            final_rc = [
+                kb_lr if kb_lr != 0 else (vs_lr if vs_lr != 0 else joy_rc[0]),
+                kb_fb if kb_fb != 0 else (vs_fb if vs_fb != 0 else joy_rc[1]),
+                kb_ud if kb_ud != 0 else (vs_ud if vs_ud != 0 else joy_rc[2]),
+                kb_yv if kb_yv != 0 else (vs_yv if vs_yv != 0 else joy_rc[3])
+            ]
         
         self.controller.send_rc_control(*final_rc)
         
@@ -304,6 +343,11 @@ class DroneApp(App):
         header.battery_level = f"{self.telemetry.battery}%"
         # Tello SDK does not broadcast wifi SNR over the state port. Querying it blocks the command loop.
         header.wifi_signal = "92%" if self.controller.is_connected else "0%"
+        
+        if self.autopilot.active:
+            header.status_text = f"AUTO: {self.autopilot.phase}"
+        else:
+            header.status_text = "READY TO FLY" if self.controller.is_connected else "DISCONNECTED"
         
         stats.altitude = f"{self.telemetry.height / 100.0:.1f}"
         stats.alt_percent = min(1.0, self.telemetry.height / 3000.0)
@@ -356,6 +400,10 @@ class DroneApp(App):
         
         if action_name == "RECONNECT":
             self.connect_to_drone()
+            return
+        elif action_name == "TOGGLE_AUTOPILOT":
+            if self.autopilot:
+                self.autopilot.toggle()
             return
         elif action_name == "SETTINGS":
             self.toggle_media_gallery()

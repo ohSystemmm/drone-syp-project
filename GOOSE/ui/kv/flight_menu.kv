@@ -101,6 +101,12 @@
         height: 6
 
     FlightModeButton:
+        text: "[font=Icons]" + Icons.target + "[/font]  Autopilot"
+        mode_id: "Autopilot"
+        is_active: app.autopilot.active
+        on_release: app.on_action("TOGGLE_AUTOPILOT")
+
+    FlightModeButton:
         text: "[font=Icons]" + Icons.sync + "[/font]  360 Flip"
         mode_id: "360 Flip"
         is_active: root.active_mode == self.mode_id
