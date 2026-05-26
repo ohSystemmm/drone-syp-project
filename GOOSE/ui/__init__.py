@@ -4,6 +4,7 @@ import cv2
 import logging
 import threading
 import time
+import math
 from kivy.config import Config
 
 Config.set('graphics', 'resizable', True)
@@ -17,12 +18,13 @@ from kivy.lang import Builder
 from kivy.uix.widget import Widget
 from kivy.uix.boxlayout import BoxLayout
 from kivy.core.text import LabelBase
-from kivy.properties import StringProperty, BooleanProperty, NumericProperty
+from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ListProperty
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 from kivy.core.window import Window
 
 from ui.media_gallery import MediaGallery, MediaCard, NavItem, FilterChip
+from ui.tutorial import TutorialOverlay
 from ui.drone_manager import DroneManager, DroneCard
 from ui.loading_overlay import LoadingOverlay
 from ui.virtual_joystick import VirtualJoystick
@@ -50,6 +52,8 @@ class TopBar(Widget):
     wifi_signal = StringProperty("0%")
     battery_level = StringProperty("0%")
     status_text = StringProperty("DISCONNECTED")
+    status_icon = StringProperty(Icons.alert_circle)
+    status_color = ListProperty([0.8, 0.2, 0.2, 1])
     is_connected = BooleanProperty(False)
 
 class Stats(BoxLayout):
@@ -113,6 +117,9 @@ class DroneApp(App):
         self._drone_mgr_kv_loaded = False
         self._loading_overlay = None
         self._pressed_keys = set()
+        self._tutorial_overlay = None
+        self._tutorial_kv_loaded = False
+        self._hud_message_evt = None
         
         Window.bind(on_key_down=self._on_key_down)
         Window.bind(on_key_up=self._on_key_up)
@@ -135,6 +142,8 @@ class DroneApp(App):
     def on_start(self):
         Clock.schedule_interval(self._update_uptime, 1.0)
         self.connect_to_drone()
+        if not TutorialOverlay.is_completed():
+            Clock.schedule_once(lambda dt: self.toggle_tutorial(), 0.5)
 
     def show_loading(self, title, subtitle, icon=None):
         if icon is None:
@@ -166,9 +175,13 @@ class DroneApp(App):
         self.show_loading("Connecting to Drone", f"Attempting connection to {ip}...", Icons.wifi)
         
         def _target():
-            if self.controller.connect(host=ip, port=port):
-                Clock.schedule_once(lambda x: self._on_connection_success(ip))
-            else:
+            try:
+                if self.controller.connect(host=ip, port=port):
+                    Clock.schedule_once(lambda x: self._on_connection_success(ip))
+                else:
+                    Clock.schedule_once(lambda x: self._on_connection_failure())
+            except Exception as e:
+                logger.error(f"Drone connection thread crashed: {e}")
                 Clock.schedule_once(lambda x: self._on_connection_failure())
 
         threading.Thread(target=_target, daemon=True).start()
@@ -344,10 +357,21 @@ class DroneApp(App):
         # Tello SDK does not broadcast wifi SNR over the state port. Querying it blocks the command loop.
         header.wifi_signal = "92%" if self.controller.is_connected else "0%"
         
-        if self.autopilot.active:
-            header.status_text = f"AUTO: {self.autopilot.phase}"
-        else:
-            header.status_text = "READY TO FLY" if self.controller.is_connected else "DISCONNECTED"
+        if getattr(self, '_hud_message_evt', None) is None:
+            if self.autopilot.active:
+                header.status_text = f"AUTO: {self.autopilot.phase}"
+                header.status_icon = Icons.target
+                # Pulse cyan alpha between 0.4 and 1.0
+                alpha = 0.4 + 0.6 * abs(math.sin(time.time() * 2.5))
+                header.status_color = [0, 0.7, 1, alpha]
+            elif self.controller.is_connected:
+                header.status_text = "READY TO FLY"
+                header.status_icon = Icons.check_circle
+                header.status_color = [0.2, 0.85, 0.4, 1]  # Green for manual ready
+            else:
+                header.status_text = "DISCONNECTED"
+                header.status_icon = Icons.alert_circle
+                header.status_color = [0.8, 0.2, 0.2, 1]  # Red for disconnected
         
         stats.altitude = f"{self.telemetry.height / 100.0:.1f}"
         stats.alt_percent = min(1.0, self.telemetry.height / 3000.0)
@@ -400,6 +424,9 @@ class DroneApp(App):
         
         if action_name == "RECONNECT":
             self.connect_to_drone()
+            return
+        elif action_name == "TUTORIAL":
+            self.toggle_tutorial()
             return
         elif action_name == "TOGGLE_AUTOPILOT":
             if self.autopilot:
@@ -485,6 +512,7 @@ class DroneApp(App):
                 self.controller.tello.send_control_command(f"EXT mled g {'0'*64}")
         except Exception as e:
             logger.error(f"Command '{action_name}' failed: {e}")
+            self.show_hud_message(f"FAILED: {action_name}", is_error=True)
 
     def close_media_gallery(self):
         if self._gallery and self._gallery.parent:
@@ -528,6 +556,56 @@ class DroneApp(App):
         if self.drone_manager_panel and self.drone_manager_panel.parent:
             self.root.remove_widget(self.drone_manager_panel)
             self.drone_manager_panel = None
+
+    def show_hud_message(self, message, is_error=False, duration=3.0):
+        try:
+            header = self.root.ids.header
+            header.status_text = message
+            if is_error:
+                header.status_color = [0.85, 0.25, 0.25, 1]  # Red
+                header.status_icon = Icons.alert_circle
+            else:
+                header.status_color = [0, 0.75, 1, 1]  # Blue
+                header.status_icon = Icons.target
+            
+            # Cancel any existing callback
+            if getattr(self, '_hud_message_evt', None) is not None:
+                self._hud_message_evt.cancel()
+            
+            self._hud_message_evt = Clock.schedule_once(self._reset_hud_message, duration)
+        except Exception as e:
+            logger.error(f"Error showing HUD message: {e}")
+
+    def _reset_hud_message(self, dt):
+        self._hud_message_evt = None
+
+    def toggle_tutorial(self):
+        """Open or close the tutorial overlay."""
+        if self._tutorial_overlay and self._tutorial_overlay.parent:
+            self.root.remove_widget(self._tutorial_overlay)
+            self._tutorial_overlay = None
+            return
+        if not self._tutorial_kv_loaded:
+            try:
+                kv_path = os.path.join(os.path.dirname(__file__), 'kv', 'tutorial.kv')
+                Builder.load_file(kv_path)
+                self._tutorial_kv_loaded = True
+            except Exception as e:
+                logger.error(f"Failed to load tutorial KV file: {e}")
+                return
+        try:
+            overlay = TutorialOverlay()
+            self.root.add_widget(overlay)
+            overlay.open()
+            self._tutorial_overlay = overlay
+        except Exception as e:
+            logger.error(f"Failed to open tutorial overlay: {e}")
+
+    def close_tutorial(self):
+        """Close the tutorial overlay."""
+        if self._tutorial_overlay and self._tutorial_overlay.parent:
+            self.root.remove_widget(self._tutorial_overlay)
+            self._tutorial_overlay = None
 
     def on_stop(self):
         self.controller.cleanup()

@@ -51,6 +51,7 @@ class Icons:
     quadcopter = "\U000F0C85"       # mdi-quadcopter / rotate-3d-variant
     pencil = "\U000F03EB"           # mdi-pencil
     plus = "\U000F0415"             # mdi-plus
+    help_circle = "\U000F02D7"      # mdi-help-circle-outline
         # mdi-calendar
 
     @classmethod

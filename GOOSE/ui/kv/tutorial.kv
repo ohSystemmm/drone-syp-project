@@ -1,0 +1,358 @@
+#:kivy 2.0.0
+#:import utils kivy.utils
+#:import Icons ui.icons.Icons
+
+<SlideTitle@Label>:
+    font_size: '22sp'
+    bold: True
+    color: (1, 1, 1, 1)
+    size_hint_y: None
+    height: 40
+    halign: 'center'
+    valign: 'middle'
+
+<SlideBodyText@Label>:
+    font_size: '14sp'
+    color: (0.75, 0.8, 0.85, 1)
+    markup: True
+    halign: 'center'
+    valign: 'top'
+    text_size: self.width, None
+    size_hint_y: None
+    height: 90
+
+<SlideBulletRow@BoxLayout>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: 38
+    spacing: 12
+    icon: ""
+    text: ""
+    
+    Label:
+        text: root.icon
+        font_name: 'Icons'
+        font_size: '18sp'
+        color: (0, 0.75, 1, 1)
+        size_hint_x: None
+        width: 30
+        halign: 'center'
+        valign: 'middle'
+        
+    Label:
+        text: root.text
+        font_size: '13sp'
+        color: (0.9, 0.9, 0.9, 1)
+        markup: True
+        text_size: self.size
+        halign: 'left'
+        valign: 'middle'
+
+<TutorialOverlay>:
+    size_hint: 1, 1
+    pos_hint: {"x": 0, "y": 0}
+
+    # Translucent dark background overlay
+    canvas.before:
+        Color:
+            rgba: (0, 0, 0, 0.7)
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    # Card Panel
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint: 0.55, 0.72
+        pos_hint: {"center_x": 0.5, "center_y": 0.5}
+        padding: [24, 24, 24, 24]
+        spacing: 14
+
+        canvas.before:
+            Color:
+                rgba: (18/255, 24/255, 32/255, 0.98)
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [18]
+            # Thin glowing border
+            Color:
+                rgba: (0/255, 160/255, 230/255, 0.4)
+            Line:
+                rounded_rectangle: [self.x, self.y, self.width, self.height, 18]
+                width: 1.2
+
+        # ── Header ──
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: 32
+            
+            Label:
+                text: "GOOSE Operator Guide"
+                font_size: '14sp'
+                bold: True
+                color: (0, 0.7, 1, 1)
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+                
+            Button:
+                text: Icons.close
+                font_name: 'Icons'
+                font_size: '16sp'
+                color: (0.5, 0.6, 0.7, 1)
+                background_normal: ''
+                background_color: (0, 0, 0, 0)
+                size_hint: None, None
+                size: 28, 28
+                on_release: root.close_tutorial()
+                canvas.before:
+                    Color:
+                        rgba: (1, 1, 1, 0.05) if self.state == 'normal' else (1, 1, 1, 0.12)
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [6]
+
+        # Divider
+        Widget:
+            size_hint_y: None
+            height: 1
+            canvas:
+                Color:
+                    rgba: (1, 1, 1, 0.08)
+                Rectangle:
+                    pos: self.x, self.y
+                    size: self.width, 1
+
+        # ── Slides Carousel ──
+        Carousel:
+            id: carousel
+            loop: False
+            on_index: root.on_slide_change(self.index)
+            
+            # Slide 1: Welcome & Keyboard
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [10, 10, 10, 10]
+                spacing: 14
+                
+                SlideTitle:
+                    text: "Keyboard Flight Controls"
+                    
+                SlideBodyText:
+                    text: "When no hardware joystick is connected, you can guide the drone using your keyboard keys."
+                
+                BoxLayout:
+                    orientation: 'vertical'
+                    spacing: 6
+                    size_hint_y: None
+                    height: 156
+                    pos_hint: {'center_x': 0.5}
+                    width: 320
+                    size_hint_x: None
+                    
+                    SlideBulletRow:
+                        icon: Icons.sync
+                        text: "[b]W / S[/b] — Pitch forward / backward"
+                    SlideBulletRow:
+                        icon: Icons.sync
+                        text: "[b]A / D[/b] — Roll left / right strafe"
+                    SlideBulletRow:
+                        icon: Icons.arrow_up_down
+                        text: "[b]Q / E[/b] — Yaw left / right rotation"
+                    SlideBulletRow:
+                        icon: Icons.arrow_top_right
+                        text: "[b]Space / Shift[/b] — Throttle up / down altitude"
+
+            # Slide 2: Autopilot Tracking
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [10, 10, 10, 10]
+                spacing: 14
+                
+                SlideTitle:
+                    text: "AI Ring Autopilot"
+                    
+                SlideBodyText:
+                    text: "GOOSE features YOLO-based object detection and geometric pose solvers to guide the drone autonomously."
+                
+                BoxLayout:
+                    orientation: 'vertical'
+                    spacing: 6
+                    size_hint_y: None
+                    height: 156
+                    pos_hint: {'center_x': 0.5}
+                    width: 320
+                    size_hint_x: None
+                    
+                    SlideBulletRow:
+                        icon: Icons.target
+                        text: "[b]Toggle[/b]: Press [b]P[/b] or tap the [b]Autopilot[/b] menu button to engage tracking."
+                    SlideBulletRow:
+                        icon: Icons.alert_circle
+                        text: "[b]Emergency override[/b]: Moving [b]WASD[/b] instantly disengages autonomy."
+                    SlideBulletRow:
+                        icon: Icons.check_circle
+                        text: "[b]Visual Feed[/b]: Detection rectangles and estimated 3D vectors are drawn in real-time."
+
+            # Slide 3: Depth Calibration
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [10, 10, 10, 10]
+                spacing: 14
+                
+                SlideTitle:
+                    text: "Visual Calibration"
+                    
+                SlideBodyText:
+                    text: "To ensure accurate 3D distance estimates, align the drone and record calibration coefficients."
+                
+                BoxLayout:
+                    orientation: 'vertical'
+                    spacing: 6
+                    size_hint_y: None
+                    height: 156
+                    pos_hint: {'center_x': 0.5}
+                    width: 320
+                    size_hint_x: None
+                    
+                    SlideBulletRow:
+                        icon: Icons.tune
+                        text: "[b]Engage Calibration[/b]: Toggle Vis-Calib mode via the Settings page."
+                    SlideBulletRow:
+                        icon: Icons.content_save
+                        text: "[b]Record Sample[/b]: Position drone at 1.0m from ring, then press [b]Space[/b] to log sample."
+                    SlideBulletRow:
+                        icon: Icons.cog
+                        text: "[b]Persisted Scaling[/b]: Captured depth scales are automatically saved to your workspace profile."
+
+            # Slide 4: Fleet Management
+            BoxLayout:
+                orientation: 'vertical'
+                padding: [10, 10, 10, 10]
+                spacing: 14
+                
+                SlideTitle:
+                    text: "Quadcopter Fleet Manager"
+                    
+                SlideBodyText:
+                    text: "Easily manage, name, and connect to multiple Tello drones from a single controller dashboard."
+                
+                BoxLayout:
+                    orientation: 'vertical'
+                    spacing: 6
+                    size_hint_y: None
+                    height: 156
+                    pos_hint: {'center_x': 0.5}
+                    width: 320
+                    size_hint_x: None
+                    
+                    SlideBulletRow:
+                        icon: Icons.quadcopter
+                        text: "[b]Manage panel[/b]: Click the quadcopter icon on the top header."
+                    SlideBulletRow:
+                        icon: Icons.plus
+                        text: "[b]Add/Rename[/b]: Register new IPs and configure nicknames for quick access."
+                    SlideBulletRow:
+                        icon: Icons.wifi
+                        text: "[b]Switch IP[/b]: Click the connection icon to disconnect and switch to a different drone."
+
+        # ── Navigation Footer ──
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: 40
+            spacing: 10
+            
+            # Back Button
+            Button:
+                text: "Back"
+                font_size: '13sp'
+                bold: True
+                color: (0.7, 0.7, 0.7, 1)
+                background_normal: ''
+                background_color: (0, 0, 0, 0)
+                size_hint_x: 0.25
+                disabled: root.current_slide == 0
+                opacity: 0 if root.current_slide == 0 else 1
+                on_release: root.prev_slide()
+                canvas.before:
+                    Color:
+                        rgba: (1, 1, 1, 0.06) if self.state == 'normal' else (1, 1, 1, 0.12)
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [8]
+
+            # Slide Dots indicator
+            BoxLayout:
+                orientation: 'horizontal'
+                spacing: 8
+                size_hint_x: 0.5
+                pos_hint: {'center_y': 0.5}
+                padding: [20, 0, 20, 0]
+                
+                Widget: # Left spacer
+                
+                # Dot 0
+                Widget:
+                    size_hint: None, None
+                    size: 8, 8
+                    canvas.before:
+                        Color:
+                            rgba: (0, 0.7, 1, 1) if root.current_slide == 0 else (1, 1, 1, 0.2)
+                        Ellipse:
+                            pos: self.pos
+                            size: self.size
+                # Dot 1
+                Widget:
+                    size_hint: None, None
+                    size: 8, 8
+                    canvas.before:
+                        Color:
+                            rgba: (0, 0.7, 1, 1) if root.current_slide == 1 else (1, 1, 1, 0.2)
+                        Ellipse:
+                            pos: self.pos
+                            size: self.size
+                # Dot 2
+                Widget:
+                    size_hint: None, None
+                    size: 8, 8
+                    canvas.before:
+                        Color:
+                            rgba: (0, 0.7, 1, 1) if root.current_slide == 2 else (1, 1, 1, 0.2)
+                        Ellipse:
+                            pos: self.pos
+                            size: self.size
+                # Dot 3
+                Widget:
+                    size_hint: None, None
+                    size: 8, 8
+                    canvas.before:
+                        Color:
+                            rgba: (0, 0.7, 1, 1) if root.current_slide == 3 else (1, 1, 1, 0.2)
+                        Ellipse:
+                            pos: self.pos
+                            size: self.size
+                            
+                Widget: # Right spacer
+
+            # Next/Finish Button
+            Button:
+                text: "Next" if root.current_slide < 3 else "Got it!"
+                font_size: '13sp'
+                bold: True
+                color: (1, 1, 1, 1)
+                background_normal: ''
+                background_color: (0, 0, 0, 0)
+                size_hint_x: 0.25
+                on_release: root.next_slide()
+                canvas.before:
+                    Color:
+                        rgba: (0/255, 140/255, 210/255, 1) if self.state == 'normal' else (0/255, 110/255, 180/255, 1)
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [8]
