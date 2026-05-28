@@ -72,6 +72,10 @@ def load_detector():
         logger.error(f"Failed to load YOLO model: {e}")
 
 def video_recorder_loop(output_path, fps=30.0):
+    """
+    Background thread recording video frames to an MP4 file.
+    Inputs: output_path (file destination), fps (recording frame rate).
+    """
     global is_video_recording, video_writer, yolo_enabled
     logger.info(f"Video recorder thread started. Output path: {output_path}")
     
@@ -136,8 +140,9 @@ def video_recorder_loop(output_path, fps=30.0):
 
 def detect_downward_target(frame_bgr):
     """
-    Classic CV fallback for downward camera: detects circular rings
-    in greyscale using Hough Circle Transform.
+    Detects circular target rings in grayscale downward camera frames.
+    Inputs: frame_bgr (BGR image frame).
+    Outputs: list of detection dictionaries containing box, center, and confidence.
     """
     import numpy as np
     try:
@@ -178,6 +183,9 @@ def detect_downward_target(frame_bgr):
     return []
 
 def yolo_worker_loop():
+    """
+    Background worker loop executing the target detection logic at 12Hz.
+    """
     global is_yolo_working, latest_detections, yolo_enabled, detector, camera_direction
     logger.info("Async YOLO/CV worker thread started")
     
@@ -218,6 +226,9 @@ def yolo_worker_loop():
         time.sleep(sleep_time)
 
 def autopilot_worker_loop():
+    """
+    Background worker loop executing active autopilot control calculations at 20Hz.
+    """
     global is_autopilot_running, autopilot, latest_detections, camera_direction
     logger.info("Autopilot worker thread started")
     
@@ -250,7 +261,10 @@ def autopilot_worker_loop():
 
 # Video streaming helper
 def get_video_frame():
-    """Generates JPEG frame stream from Tello video feed."""
+    """
+    Generates an MJPEG video frame stream from the drone camera feed.
+    Outputs: yielding byte string frames in multipart format.
+    """
     global yolo_enabled
     logger.info("Starting MJPEG video frame generator loop")
     while True:
@@ -312,6 +326,11 @@ class LEDTextRequest(BaseModel):
 
 @app.post("/api/connect")
 def connect_drone(req: ConnectionRequest):
+    """
+    Establishes connection to the drone and initializes telemetry services.
+    Inputs: req (ConnectionRequest containing IP).
+    Outputs: JSON response indicating status.
+    """
     global connected_ip
     try:
         if controller.is_connected:
@@ -335,6 +354,10 @@ def connect_drone(req: ConnectionRequest):
 
 @app.post("/api/disconnect")
 def disconnect_drone():
+    """
+    Disconnects the drone controller and stops active telemetry.
+    Outputs: JSON response indicating status.
+    """
     global connected_ip
     try:
         controller.disconnect()
@@ -346,6 +369,10 @@ def disconnect_drone():
 
 @app.post("/api/takeoff")
 def takeoff():
+    """
+    Commands the drone to take off.
+    Outputs: JSON response indicating status.
+    """
     if not controller.is_connected or not controller.tello:
         raise HTTPException(status_code=400, detail="Drone not connected")
     try:
@@ -357,6 +384,10 @@ def takeoff():
 
 @app.post("/api/land")
 def land():
+    """
+    Commands the drone to land.
+    Outputs: JSON response indicating status.
+    """
     if not controller.is_connected or not controller.tello:
         raise HTTPException(status_code=400, detail="Drone not connected")
     try:
@@ -368,6 +399,10 @@ def land():
 
 @app.post("/api/emergency")
 def emergency():
+    """
+    Sends an emergency stop command to immediately shut off drone motors.
+    Outputs: JSON response indicating status.
+    """
     if not controller.is_connected:
         raise HTTPException(status_code=400, detail="Drone not connected")
     try:
@@ -382,6 +417,11 @@ class FlipRequest(BaseModel):
 
 @app.post("/api/flip")
 def flip(req: FlipRequest):
+    """
+    Triggers a drone flip in the specified direction.
+    Inputs: req (FlipRequest containing direction string).
+    Outputs: JSON response indicating status.
+    """
     if not controller.is_connected:
         raise HTTPException(status_code=400, detail="Drone not connected")
     if req.direction not in ('l', 'r', 'f', 'b'):
@@ -397,6 +437,11 @@ class CameraRequest(BaseModel):
 
 @app.post("/api/camera")
 def set_camera(req: CameraRequest):
+    """
+    Sets the camera streaming direction (0: forward, 1: downward).
+    Inputs: req (CameraRequest containing direction integer).
+    Outputs: JSON response indicating status.
+    """
     global camera_direction
     if not controller.is_connected:
         raise HTTPException(status_code=400, detail="Drone not connected")
@@ -410,6 +455,11 @@ def set_camera(req: CameraRequest):
 
 @app.post("/api/rc")
 def rc_control(req: RCRequest):
+    """
+    Sends manual roll, pitch, throttle, and yaw commands to the drone.
+    Inputs: req (RCRequest containing lr, fb, ud, yv stick inputs).
+    Outputs: JSON response indicating status.
+    """
     if not controller.is_connected or not controller.tello:
         return {"status": "error", "message": "Drone not connected"}
     try:
@@ -446,6 +496,10 @@ def led_text(req: LEDTextRequest):
 
 @app.get("/api/telemetry")
 def get_telemetry():
+    """
+    Retrieves the latest telemetry metrics and active autopilot status.
+    Outputs: JSON telemetry dictionary.
+    """
     is_flying = controller.is_flying if controller.is_connected else False
     return {
         "connected": controller.is_connected,
@@ -470,6 +524,10 @@ def get_telemetry():
 
 @app.post("/api/telemetry/reset")
 def reset_telemetry():
+    """
+    Resets accumulated flight statistics and distances in the telemetry service.
+    Outputs: JSON response indicating status.
+    """
     telemetry.reset_stats()
     return {"status": "success"}
 
@@ -478,10 +536,19 @@ class YoloConfigRequest(BaseModel):
 
 @app.get("/api/settings/yolo")
 def get_yolo_config():
+    """
+    Retrieves the current YOLO vision overlay configuration status.
+    Outputs: JSON dict containing enabled flag.
+    """
     return {"enabled": yolo_enabled}
 
 @app.post("/api/settings/yolo")
 def set_yolo_config(req: YoloConfigRequest):
+    """
+    Enables or disables the YOLO overlay drawing.
+    Inputs: req (YoloConfigRequest containing enabled boolean).
+    Outputs: JSON response indicating status.
+    """
     global yolo_enabled
     yolo_enabled = req.enabled
     logger.info(f"YOLO vision overlay {'enabled' if yolo_enabled else 'disabled'}")
@@ -489,10 +556,18 @@ def set_yolo_config(req: YoloConfigRequest):
 
 @app.get("/api/video")
 def video_feed():
+    """
+    Exposes the video stream endpoint for the cockpit view.
+    Outputs: multipart video stream response.
+    """
     return StreamingResponse(get_video_frame(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 @app.get("/api/media")
 def list_media():
+    """
+    Lists all recorded photos and videos inside the flight media folder.
+    Outputs: JSON array containing media metadata records.
+    """
     media_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flight_data")
     files = []
     if os.path.exists(media_dir):
@@ -514,6 +589,11 @@ def list_media():
 
 @app.get("/api/media/file/{file_path:path}")
 def serve_media_file(file_path: str):
+    """
+    Serves a specific recorded photo or video file.
+    Inputs: file_path (relative file path string).
+    Outputs: FileResponse binary stream.
+    """
     media_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flight_data")
     full_path = os.path.normpath(os.path.join(media_dir, file_path))
     if not full_path.startswith(os.path.normpath(media_dir)):
@@ -527,6 +607,11 @@ def serve_media_file(file_path: str):
 
 @app.delete("/api/media/{file_path:path}")
 def delete_media_file(file_path: str):
+    """
+    Deletes a recorded photo or video file from disk.
+    Inputs: file_path (relative file path string).
+    Outputs: JSON response indicating status.
+    """
     media_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flight_data")
     full_path = os.path.normpath(os.path.join(media_dir, file_path))
     if not full_path.startswith(os.path.normpath(media_dir)):
@@ -538,6 +623,10 @@ def delete_media_file(file_path: str):
 
 @app.post("/api/led/clear")
 def led_clear():
+    """
+    Clears the LED display by blanking all lights.
+    Outputs: JSON response indicating status.
+    """
     if not controller.is_connected or not controller.tello:
         raise HTTPException(status_code=400, detail="Drone not connected")
     try:

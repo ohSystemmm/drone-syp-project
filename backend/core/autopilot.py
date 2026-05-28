@@ -197,7 +197,10 @@ class AutoPilot:
         return self.active
 
     def engage_downward(self):
-        """Engage downward camera autopilot (CENTER phase only, for manual positioning)."""
+        """
+        Engages the autopilot in downward camera centering mode.
+        Outputs: True (success status).
+        """
         self.active = True
         self.phase = PHASE_CENTER
         self._center_stable_since = None
@@ -427,10 +430,9 @@ class AutoPilot:
 
     def _compute_center(self, pose, now, bbox_center):
         """
-        Fine horizontal centering using downward camera (320x240).
-        Ring center must reach frame center (160, 120).
-
-        bbox_center is in downward camera coordinates.
+        Centers the drone horizontally over the target using the downward camera.
+        Inputs: pose (position estimate), now (current timestamp), bbox_center (target bounding box center).
+        Outputs: (lr, fb, ud, yv) control command tuple.
         """
         if self._center_stable_since is None and pose is not None:
             self._center_stable_since = now
@@ -485,8 +487,9 @@ class AutoPilot:
 
     def _compute_descent(self, pose, now):
         """
-        Vertical descent through the ring using downward camera.
-        Move down at constant speed, maintain horizontal centering.
+        Commands a constant vertical descent through the target ring.
+        Inputs: pose (position estimate), now (current timestamp).
+        Outputs: (lr, fb, ud, yv) control command tuple.
         """
         if self._descent_start_time is None:
             self._descent_start_time = now
