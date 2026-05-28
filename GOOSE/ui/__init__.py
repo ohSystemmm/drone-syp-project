@@ -4,6 +4,7 @@ import cv2
 import logging
 import threading
 import time
+import math
 from kivy.config import Config
 
 Config.set('graphics', 'resizable', True)
@@ -17,12 +18,13 @@ from kivy.lang import Builder
 from kivy.uix.widget import Widget
 from kivy.uix.boxlayout import BoxLayout
 from kivy.core.text import LabelBase
-from kivy.properties import StringProperty, BooleanProperty, NumericProperty
+from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ListProperty
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
 from kivy.core.window import Window
 
 from ui.media_gallery import MediaGallery, MediaCard, NavItem, FilterChip
+from ui.tutorial import TutorialOverlay
 from ui.drone_manager import DroneManager, DroneCard
 from ui.loading_overlay import LoadingOverlay
 from ui.virtual_joystick import VirtualJoystick
@@ -50,6 +52,8 @@ class TopBar(Widget):
     wifi_signal = StringProperty("0%")
     battery_level = StringProperty("0%")
     status_text = StringProperty("DISCONNECTED")
+    status_icon = StringProperty(Icons.alert_circle)
+    status_color = ListProperty([0.8, 0.2, 0.2, 1])
     is_connected = BooleanProperty(False)
 
 class Stats(BoxLayout):
@@ -92,12 +96,18 @@ class DroneApp(App):
     recording_time = StringProperty("00:00:00")
     uptime = StringProperty("00:00")
     conf_threshold = NumericProperty(0.5)
+    gallery_open = BooleanProperty(False)
+    model_type = StringProperty("AUTO")
+    downward_cam_status = StringProperty("OFF")
+    drone_ip = StringProperty("192.168.10.1")
     _record_seconds = 0
     _uptime_seconds = -1
 
     def __init__(self, args=None, **kwargs):
         super().__init__(**kwargs)
         self.args = args
+        self.drone_ip = args.ip if args and getattr(args, 'ip', None) else "192.168.10.1"
+        self.model_type = args.model.upper() if args and getattr(args, 'model', None) else "AUTO"
         self.controller = DroneController()
         self.telemetry = TelemetryService()
         self.drone_registry = DroneRegistry()
@@ -109,16 +119,28 @@ class DroneApp(App):
         self.vision_thread = None
         self._video_event = None
         self._control_event = None
+        self._video_texture = None
         self.drone_manager_panel = None
         self._drone_mgr_kv_loaded = False
         self._loading_overlay = None
         self._pressed_keys = set()
+        self._tutorial_overlay = None
+        self._tutorial_kv_loaded = False
+        self._hud_message_evt = None
         
         Window.bind(on_key_down=self._on_key_down)
         Window.bind(on_key_up=self._on_key_up)
 
     def _on_key_down(self, window, key, scancode, codepoint, modifiers, **kwargs):
         self._pressed_keys.add(key)
+        if key == 112:  # 'p' key to toggle autopilot
+            self.on_action("TOGGLE_AUTOPILOT")
+        elif key == 32:  # 'space' key to capture calibration sample
+            if self.calibration and self.calibration.active:
+                pose = self.vision_thread.latest_pose if self.vision_thread else None
+                self.calibration.record_sample(pose)
+        elif key == 27:  # 'escape' key for emergency landing
+            self.on_action("Emergency Land")
         
     def _on_key_up(self, window, key, scancode, **kwargs):
         if key in self._pressed_keys:
@@ -127,6 +149,8 @@ class DroneApp(App):
     def on_start(self):
         Clock.schedule_interval(self._update_uptime, 1.0)
         self.connect_to_drone()
+        if not TutorialOverlay.is_completed():
+            Clock.schedule_once(lambda dt: self.toggle_tutorial(), 0.5)
 
     def show_loading(self, title, subtitle, icon=None):
         if icon is None:
@@ -158,9 +182,13 @@ class DroneApp(App):
         self.show_loading("Connecting to Drone", f"Attempting connection to {ip}...", Icons.wifi)
         
         def _target():
-            if self.controller.connect(host=ip, port=port):
-                Clock.schedule_once(lambda x: self._on_connection_success(ip))
-            else:
+            try:
+                if self.controller.connect(host=ip, port=port):
+                    Clock.schedule_once(lambda x: self._on_connection_success(ip))
+                else:
+                    Clock.schedule_once(lambda x: self._on_connection_failure())
+            except Exception as e:
+                logger.error(f"Drone connection thread crashed: {e}")
                 Clock.schedule_once(lambda x: self._on_connection_failure())
 
         threading.Thread(target=_target, daemon=True).start()
@@ -224,23 +252,50 @@ class DroneApp(App):
         except Exception as e:
             logger.error(f"Failed to load AI model in background: {e}")
 
+    def reload_model(self):
+        """Stop the current vision thread and reload the selected model in the background."""
+        logger.info("Stopping vision thread to reload model...")
+        if self.vision_thread:
+            self.vision_thread.stop()
+            self.vision_thread.join(timeout=1.0)
+            self.vision_thread = None
+        self._load_model_async()
+
     def _update_video(self, dt):
         frame = self.controller.get_frame()
         if frame is not None:
             try:
-                display_frame = frame.copy()
+                # Only copy frame if we are going to draw overlays on it
+                has_overlays = False
+                detections = []
+                pose = None
                 if self.vision_thread:
                     detections = self.vision_thread.latest_detections
                     pose = self.vision_thread.latest_pose
+                    if detections or pose:
+                        has_overlays = True
+                
+                if has_overlays:
+                    display_frame = frame.copy()
                     display_frame = draw_detections(display_frame, detections)
                     if pose:
                         is_align = self.autopilot.active and self.autopilot.phase == "ALIGN"
                         display_frame = self.vision_thread.pose_estimator.draw_estimate(display_frame, pose, show_heatmap=is_align)
+                else:
+                    display_frame = frame
 
-                buf = cv2.flip(display_frame, 0).tobytes()
-                texture = Texture.create(size=(display_frame.shape[1], display_frame.shape[0]), colorfmt='rgb')
-                texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
-                self.root.ids.videosstream.texture = texture
+                # Convert display_frame directly to bytes without CPU-side cv2.flip
+                buf = display_frame.tobytes()
+                h, w = display_frame.shape[:2]
+                
+                # Reuse existing Texture to avoid high CPU allocation overhead and GC pressure
+                if not self._video_texture or self._video_texture.size != (w, h):
+                    self._video_texture = Texture.create(size=(w, h), colorfmt='rgb')
+                    # GPU-side vertical flip: extremely efficient compared to CPU cv2.flip
+                    self._video_texture.flip_vertical()
+                
+                self._video_texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
+                self.root.ids.videosstream.texture = self._video_texture
             except Exception as e:
                 logger.error(f"Video update error: {e}")
 
@@ -273,23 +328,54 @@ class DroneApp(App):
         if 119 in keys: kb_fb = speed
         elif 115 in keys: kb_fb = -speed
         
-        if 32 in keys: kb_ud = speed
+        if 32 in keys:
+            if not (self.calibration and self.calibration.active):
+                kb_ud = speed
         elif 304 in keys or 303 in keys: kb_ud = -speed
         
         if 113 in keys: kb_yv = -speed
         elif 101 in keys: kb_yv = speed
         
+        # Check for any active manual controls (keyboard, virtual sticks, physical sticks)
+        manual_input = (
+            any(v != 0 for v in [kb_lr, kb_fb, kb_ud, kb_yv]) or
+            any(v != 0 for v in [vs_lr, vs_fb, vs_ud, vs_yv]) or
+            any(v != 0 for v in joy_rc)
+        )
+
         if self.autopilot.active and self.vision_thread:
-            # Autopilot logic would go here if we wanted to replicate the main loop exactly
-            pass
-        
-        # Priority: Keyboard > Virtual joystick > Hardware joystick
-        final_rc = [
-            kb_lr if kb_lr != 0 else (vs_lr if vs_lr != 0 else joy_rc[0]),
-            kb_fb if kb_fb != 0 else (vs_fb if vs_fb != 0 else joy_rc[1]),
-            kb_ud if kb_ud != 0 else (vs_ud if vs_ud != 0 else joy_rc[2]),
-            kb_yv if kb_yv != 0 else (vs_yv if vs_yv != 0 else joy_rc[3])
-        ]
+            if manual_input:
+                self.autopilot.disengage()
+                logger.info("[Control] Autopilot disengaged due to manual input override.")
+                final_rc = [
+                    kb_lr if kb_lr != 0 else (vs_lr if vs_lr != 0 else joy_rc[0]),
+                    kb_fb if kb_fb != 0 else (vs_fb if vs_fb != 0 else joy_rc[1]),
+                    kb_ud if kb_ud != 0 else (vs_ud if vs_ud != 0 else joy_rc[2]),
+                    kb_yv if kb_yv != 0 else (vs_yv if vs_yv != 0 else joy_rc[3])
+                ]
+            else:
+                current_pose = self.vision_thread.latest_pose
+                current_detections = self.vision_thread.latest_detections
+                
+                bbox_center = current_detections[0]['center'] if current_detections else None
+                bbox_ratio = None
+                if current_detections:
+                    b = current_detections[0]['box']
+                    bh = b[3] - b[1]
+                    bbox_fully_visible = b[0] > 20 and b[1] > 20 and b[2] < 940 and b[3] < 700
+                    if bh > 0 and bbox_fully_visible:
+                        bbox_ratio = bh / 720.0
+                
+                final_rc = self.autopilot.compute(current_pose, bbox_center=bbox_center, bbox_ratio=bbox_ratio)
+        else:
+            # Normal manual control logic
+            # Priority: Keyboard > Virtual joystick > Hardware joystick
+            final_rc = [
+                kb_lr if kb_lr != 0 else (vs_lr if vs_lr != 0 else joy_rc[0]),
+                kb_fb if kb_fb != 0 else (vs_fb if vs_fb != 0 else joy_rc[1]),
+                kb_ud if kb_ud != 0 else (vs_ud if vs_ud != 0 else joy_rc[2]),
+                kb_yv if kb_yv != 0 else (vs_yv if vs_yv != 0 else joy_rc[3])
+            ]
         
         self.controller.send_rc_control(*final_rc)
         
@@ -304,6 +390,22 @@ class DroneApp(App):
         header.battery_level = f"{self.telemetry.battery}%"
         # Tello SDK does not broadcast wifi SNR over the state port. Querying it blocks the command loop.
         header.wifi_signal = "92%" if self.controller.is_connected else "0%"
+        
+        if getattr(self, '_hud_message_evt', None) is None:
+            if self.autopilot.active:
+                header.status_text = f"AUTO: {self.autopilot.phase}"
+                header.status_icon = Icons.target
+                # Pulse cyan alpha between 0.4 and 1.0
+                alpha = 0.4 + 0.6 * abs(math.sin(time.time() * 2.5))
+                header.status_color = [0, 0.7, 1, alpha]
+            elif self.controller.is_connected:
+                header.status_text = "READY TO FLY"
+                header.status_icon = Icons.check_circle
+                header.status_color = [0.2, 0.85, 0.4, 1]  # Green for manual ready
+            else:
+                header.status_text = "DISCONNECTED"
+                header.status_icon = Icons.alert_circle
+                header.status_color = [0.8, 0.2, 0.2, 1]  # Red for disconnected
         
         stats.altitude = f"{self.telemetry.height / 100.0:.1f}"
         stats.alt_percent = min(1.0, self.telemetry.height / 3000.0)
@@ -357,6 +459,13 @@ class DroneApp(App):
         if action_name == "RECONNECT":
             self.connect_to_drone()
             return
+        elif action_name == "TUTORIAL":
+            self.toggle_tutorial()
+            return
+        elif action_name == "TOGGLE_AUTOPILOT":
+            if self.autopilot:
+                self.autopilot.toggle()
+            return
         elif action_name == "SETTINGS":
             self.toggle_media_gallery()
             return
@@ -374,6 +483,17 @@ class DroneApp(App):
                 is_active = not self.vision_thread.is_paused
                 self.vision_thread.is_paused = is_active
                 logger.info(f"Vision model {'paused' if is_active else 'resumed'}")
+            return
+        elif action_name == "CYCLE_MODEL":
+            if self.args:
+                new_model = 'pt' if getattr(self.args, 'model', 'onnx') == 'onnx' else 'onnx'
+                self.args.model = new_model
+                self.model_type = new_model.upper()
+                self.reload_model()
+            return
+        elif action_name == "TOGGLE_DOWNWARD_CAM":
+            self.downward_cam_status = "ON" if self.downward_cam_status == "OFF" else "OFF"
+            self.show_hud_message("Downward camera status toggled", is_error=False)
             return
         elif action_name == "CALIB_VIS":
             if self.calibration:
@@ -418,30 +538,37 @@ class DroneApp(App):
                 self.controller.tello.send_control_command("bounce")
             elif action_name == "LED_TEXT":
                 text = args[0] if args else ""
-                if text: self.controller.tello.send_control_command(f"EXT mled l r 2.5 {text}")
+                color = args[1] if len(args) > 1 else "r"
+                direction = args[2] if len(args) > 2 else "l"
+                speed = args[3] if len(args) > 3 else "2.5"
+                if text: self.controller.tello.send_command_without_return(f"EXT mled {direction} {color} {speed} {text}")
             elif action_name == "LED_PATTERN":
                 patterns = {
                     "heart": "000000000rr00rr0rrrrrrrrrrrrrrrr0rrrrrr000rrrr0000rr000000000000",
                     "smile": "0000000000rrrr000r0000r0r0rrrr0rr0rrrr0rr00000r000rrrr0000000000",
                     "arrow": "0000r000000rr00000rrrr000000r0000000r0000000r0000000r00000000000",
                     "goose": "0000000000rr00000000rr0000000rr0000000rr0rr000rr0rr00rr000000000",
+                    "cross": "r000000r0r0000r000r00r00000rr000000rr00000r00r000r0000r0r000000r",
+                    "square": "bbbbbbbbb000000bb000000bb000000bb000000bb000000bb000000bbbbbbbbb",
                 }
                 p_str = patterns.get(args[0])
-                if p_str: self.controller.tello.send_control_command(f"EXT mled g {p_str}")
+                if p_str: self.controller.tello.send_command_without_return(f"EXT mled g {p_str}")
             elif action_name == "LED_PATTERN_CUSTOM":
                 p_str = args[0] if args else ""
-                if p_str: self.controller.tello.send_control_command(f"EXT mled g {p_str}")
+                if p_str: self.controller.tello.send_command_without_return(f"EXT mled g {p_str}")
             elif action_name == "LED_COLOR":
-                self.controller.tello.send_control_command(f"EXT mled g {args[0]*64}")
+                self.controller.tello.send_command_without_return(f"EXT mled g {args[0]*64}")
             elif action_name == "LED_CLEAR":
-                self.controller.tello.send_control_command(f"EXT mled g {'0'*64}")
+                self.controller.tello.send_command_without_return(f"EXT mled g {'0'*64}")
         except Exception as e:
             logger.error(f"Command '{action_name}' failed: {e}")
+            self.show_hud_message(f"FAILED: {action_name}", is_error=True)
 
     def close_media_gallery(self):
         if self._gallery and self._gallery.parent:
             self.root.remove_widget(self._gallery)
             self._gallery = None
+            self.gallery_open = False
 
     _gallery = None
     _gallery_kv_loaded = False
@@ -450,6 +577,7 @@ class DroneApp(App):
         if self._gallery and self._gallery.parent:
             self.root.remove_widget(self._gallery)
             self._gallery = None
+            self.gallery_open = False
             return
         if not self._gallery_kv_loaded:
             kv_path = os.path.join(os.path.dirname(__file__), 'kv', 'media_gallery.kv')
@@ -459,6 +587,7 @@ class DroneApp(App):
         self.root.add_widget(gallery)
         gallery.open()
         self._gallery = gallery
+        self.gallery_open = True
 
     def toggle_drone_manager(self):
         """Open or close the drone fleet management overlay."""
@@ -480,6 +609,56 @@ class DroneApp(App):
         if self.drone_manager_panel and self.drone_manager_panel.parent:
             self.root.remove_widget(self.drone_manager_panel)
             self.drone_manager_panel = None
+
+    def show_hud_message(self, message, is_error=False, duration=3.0):
+        try:
+            header = self.root.ids.header
+            header.status_text = message
+            if is_error:
+                header.status_color = [0.85, 0.25, 0.25, 1]  # Red
+                header.status_icon = Icons.alert_circle
+            else:
+                header.status_color = [0, 0.75, 1, 1]  # Blue
+                header.status_icon = Icons.target
+            
+            # Cancel any existing callback
+            if getattr(self, '_hud_message_evt', None) is not None:
+                self._hud_message_evt.cancel()
+            
+            self._hud_message_evt = Clock.schedule_once(self._reset_hud_message, duration)
+        except Exception as e:
+            logger.error(f"Error showing HUD message: {e}")
+
+    def _reset_hud_message(self, dt):
+        self._hud_message_evt = None
+
+    def toggle_tutorial(self):
+        """Open or close the tutorial overlay."""
+        if self._tutorial_overlay and self._tutorial_overlay.parent:
+            self.root.remove_widget(self._tutorial_overlay)
+            self._tutorial_overlay = None
+            return
+        if not self._tutorial_kv_loaded:
+            try:
+                kv_path = os.path.join(os.path.dirname(__file__), 'kv', 'tutorial.kv')
+                Builder.load_file(kv_path)
+                self._tutorial_kv_loaded = True
+            except Exception as e:
+                logger.error(f"Failed to load tutorial KV file: {e}")
+                return
+        try:
+            overlay = TutorialOverlay()
+            self.root.add_widget(overlay)
+            overlay.open()
+            self._tutorial_overlay = overlay
+        except Exception as e:
+            logger.error(f"Failed to open tutorial overlay: {e}")
+
+    def close_tutorial(self):
+        """Close the tutorial overlay."""
+        if self._tutorial_overlay and self._tutorial_overlay.parent:
+            self.root.remove_widget(self._tutorial_overlay)
+            self._tutorial_overlay = None
 
     def on_stop(self):
         self.controller.cleanup()

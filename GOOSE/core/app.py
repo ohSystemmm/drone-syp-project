@@ -306,9 +306,9 @@ class GooseApp:
     def _get_bbox_ratio(self, detections):
         if not detections: return None
         b = detections[0]['box']
-        bw, bh = b[2] - b[0], b[3] - b[1]
+        bh = b[3] - b[1]
         if bh > 0 and b[0] > 20 and b[1] > 20 and b[2] < 940 and b[3] < 700:
-            return bw / bh
+            return bh / 720.0
         return None
 
     def _handle_replay(self):

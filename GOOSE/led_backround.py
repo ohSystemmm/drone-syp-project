@@ -1,51 +1,70 @@
 import socket
 
-
 class TelloLEDController:
+    """
+    Controller for managing the Tello's 8x8 LED matrix display over UDP.
+    Communicates via the Tello SDK command API, operating in non-blocking
+    mode to avoid stalling the main graphical thread.
+    """
     def __init__(self, ip='192.168.10.1', port=8889):
         self.tello_address = (ip, port)
-        # UDP-Socket einrichten
+        
+        # Initialize raw UDP socket for low-latency command packets
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Kurzer Timeout, damit die GUI nicht blockiert, falls wir doch mal auf Antworten warten
+        
+        # Guard main event loop: set socket timeout to prevent blocking during connection dropouts
         self.sock.settimeout(0.5)
 
-        # Drohne beim Start direkt in den SDK-Modus versetzen
+        # Initialize SDK mode handshake immediately to allow subsequent commands
         self.enable_sdk()
 
-    def send_command(self, cmd):
-        """Sendet einen rohen Befehl an die Drohne."""
+    def send_command(self, cmd: str):
+        """
+        Transmits a raw SDK text command to the drone.
+        Encodes the command string as UTF-8 before network transmission.
+        """
         try:
             self.sock.sendto(cmd.encode('utf-8'), self.tello_address)
-            print(f"[Backend] Gesendet: {cmd}")
+            print(f"[Backend] Sent: {cmd}")
         except Exception as e:
-            print(f"[Backend] Fehler beim Senden: {e}")
+            print(f"[Backend] Socket write error: {e}")
 
     def enable_sdk(self):
-        """Aktiviert den Programmiermodus der Tello."""
+        """
+        Triggers the Tello SDK programming mode.
+        Must be invoked prior to dispatching any custom accessory or control commands.
+        """
         self.send_command("command")
 
     def send_pattern(self, pattern: str):
         """
-        Sendet einen 64-stelligen String an die LED-Matrix.
-        Gültige Zeichen: '0' (Aus), 'r' (Rot), 'b' (Blau), 'p' (Lila).
+        Sends an 8x8 grid state pattern (64 characters) to the LED matrix.
+        Valid characters: 
+          - '0': Off (Unlit)
+          - 'r': Red
+          - 'b': Blue
+          - 'p': Purple
         """
         if len(pattern) != 64:
-            print(f"[Backend] Fehler: Muster muss exakt 64 Zeichen haben (aktuell {len(pattern)}).")
+            print(f"[Backend] Error: Pattern payload must contain exactly 64 characters (got {len(pattern)}).")
             return
 
         cmd = f"EXT mled g {pattern}"
         self.send_command(cmd)
 
     def clear_matrix(self):
-        """Schaltet alle LEDs auf dem Feld aus."""
-        leeres_muster = "0" * 64
-        self.send_pattern(leeres_muster)
+        """Clears the 8x8 matrix display by disabling all LED elements."""
+        self.send_pattern("0" * 64)
 
     def send_text(self, text: str, color='r', direction='l', speed=2.5):
         """
-        Lässt einen Text über das Display scrollen.
-        Richtung: 'l' (links), 'r' (rechts), 'u' (oben), 'd' (unten)
-        Farbe: 'r' (rot), 'b' (blau), 'p' (lila)
+        Initiates a scrolling text marquee across the LED matrix.
+        
+        Parameters:
+          - text: The string content to scroll (English/alphanumeric)
+          - color: Character color ('r'=Red, 'b'=Blue, 'p'=Purple)
+          - direction: Scroll transition vector ('l'=Left, 'r'=Right, 'u'=Up, 'd'=Down)
+          - speed: Scroll transition delay (seconds per frame, range: 0.1 - 10.0)
         """
         cmd = f"EXT mled {direction} {color} {speed} {text}"
         self.send_command(cmd)

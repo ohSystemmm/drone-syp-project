@@ -3,10 +3,70 @@
 #:import Icons ui.icons.Icons
 #:import os os
 #:import LEDDrawingGrid ui.media_gallery.LEDDrawingGrid
+#:import PresetCard ui.media_gallery.PresetCard
+#:import HoverButton ui.media_gallery.HoverButton
+#:import ClickableLabel ui.media_gallery.ClickableLabel
+#:import ClickableBox ui.media_gallery.ClickableBox
 #:set margin 10
 
-<ClickableLabel@ButtonBehavior+Label>:
-<ClickableBox@ButtonBehavior+BoxLayout>:
+<ClickableLabel>:
+    opacity: 1.0 if not self.hovered else 0.8
+
+<ClickableBox>:
+    opacity: 1.0 if not self.hovered else 0.85
+
+<HoverButton>:
+    opacity: 1.0 if not self.hovered else 0.85
+
+<PresetCard>:
+    
+    orientation: 'horizontal'
+    padding: [10, 8, 10, 8]
+    spacing: 8
+    size_hint_y: None
+    height: 46
+    canvas.before:
+        Color:
+            rgba: (25/255, 35/255, 58/255, 0.9) if (self.hovered and self.state == 'normal') else ((18/255, 25/255, 41/255, 0.85) if self.state == 'normal' else (28/255, 39/255, 64/255, 0.95))
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [8]
+        Color:
+            rgba: self.color_theme if self.state == 'down' else (self.color_theme[0], self.color_theme[1], self.color_theme[2], 0.15)
+        Line:
+            rounded_rectangle: [self.x, self.y, self.width, self.height, 8]
+            width: 1.5 if self.state == 'down' else 1
+    on_release:
+        app.on_action("LED_PATTERN", root.text.lower())
+        if root.grid_id: root.grid_id.load_pattern_string(root.pattern_string)
+            
+    Label:
+        text: root.icon
+        font_name: 'Icons'
+        font_size: '16sp'
+        color: root.color_theme
+        size_hint_x: None
+        width: 20
+        
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: 1
+        Label:
+            text: root.text
+            font_size: '11sp'
+            bold: True
+            color: (1, 1, 1, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+        Label:
+            text: "Apply Preset"
+            font_size: '8sp'
+            color: (0.45, 0.5, 0.6, 1)
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
 
 <VerticalDivider@Widget>:
     size_hint_x: None
@@ -183,7 +243,7 @@
 
     canvas.before:
         Color:
-            rgba: (0, 0.45, 0.75, 0.35) if self.is_active else ((1, 1, 1, 0.05) if self.state == 'down' else (0, 0, 0, 0))
+            rgba: (0, 0.45, 0.75, 0.35) if self.is_active else ((0.1, 0.16, 0.28, 0.4) if self.hovered else ((1, 1, 1, 0.05) if self.state == 'down' else (0, 0, 0, 0)))
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -397,22 +457,7 @@
                 bold: True
                 color: (1, 1, 1, 1)
 
-        # Bell + Avatar
-        Label:
-            text: Icons.bell
-            font_name: 'Icons'
-            font_size: '18sp'
-            color: (0.5, 0.6, 0.7, 1)
-            size_hint_x: None
-            width: 32
 
-        Label:
-            text: Icons.account_circle
-            font_name: 'Icons'
-            font_size: '24sp'
-            color: (0.4, 0.5, 0.65, 1)
-            size_hint_x: None
-            width: 32
 
     # ===== MAIN BODY (Sidebar + Content) =====
     BoxLayout:
@@ -643,7 +688,7 @@
                     valign: 'middle'
 
         # ─── MAIN CONTENT AREA ────────────────
-        FloatLayout:
+        RelativeLayout:
             ScreenManager:
                 id: content_manager
                 # current set in Python on_active_nav
@@ -654,7 +699,178 @@
                         orientation: 'vertical'
                         padding: [28, 20, 28, 70]
                         spacing: 16
-                        # ... (existing media layout) ...
+
+                        # Title Row
+                        BoxLayout:
+                            orientation: 'horizontal'
+                            size_hint_y: None
+                            height: 60
+
+                            BoxLayout:
+                                orientation: 'vertical'
+                                spacing: 4
+
+                                Label:
+                                    text: "Media Gallery"
+                                    font_size: '26sp'
+                                    bold: True
+                                    color: (1, 1, 1, 1)
+                                    text_size: self.size
+                                    halign: 'left'
+                                    valign: 'bottom'
+
+                                Label:
+                                    text: "Manage your aerial captures and drone telemetry media."
+                                    font_size: '12sp'
+                                    color: (0.45, 0.5, 0.6, 1)
+                                    text_size: self.size
+                                    halign: 'left'
+                                    valign: 'top'
+
+                            Widget:
+
+                            # Selection Mode + View toggle
+                            BoxLayout:
+                                orientation: 'horizontal'
+                                size_hint: None, None
+                                size: 220, 36
+                                pos_hint: {"center_y": 0.5}
+                                spacing: 10
+
+                                ClickableBox:
+                                    size_hint_x: None
+                                    width: 148
+                                    padding: [12, 4, 12, 4]
+                                    spacing: 6
+                                    on_release: root.toggle_selection_mode()
+                                    canvas.before:
+                                        Color:
+                                            rgba: (0.08, 0.12, 0.2, 0.9) if not root.selection_mode else (0, 0.45, 0.75, 0.9)
+                                        RoundedRectangle:
+                                            pos: self.pos
+                                            size: self.size
+                                            radius: [18]
+
+                                    Label:
+                                        text: Icons.filter_variant
+                                        font_name: 'Icons'
+                                        font_size: '14sp'
+                                        color: (0.4, 0.6, 0.85, 1) if not root.selection_mode else (1, 1, 1, 1)
+                                        size_hint_x: None
+                                        width: 18
+
+                                    Label:
+                                        text: "Selection Mode"
+                                        font_size: '11sp'
+                                        color: (0.7, 0.8, 0.9, 1) if not root.selection_mode else (1, 1, 1, 1)
+
+                                BoxLayout:
+                                    size_hint_x: None
+                                    width: 56
+                                    padding: [4, 4, 4, 4]
+                                    spacing: 2
+                                    canvas.before:
+                                        Color:
+                                            rgba: (0.08, 0.12, 0.2, 0.9)
+                                        RoundedRectangle:
+                                            pos: self.pos
+                                            size: self.size
+                                            radius: [8]
+
+                                    Label:
+                                        text: Icons.view_grid
+                                        font_name: 'Icons'
+                                        font_size: '16sp'
+                                        color: (0.3, 0.65, 1, 1)
+
+                                    Label:
+                                        text: Icons.view_list
+                                        font_name: 'Icons'
+                                        font_size: '16sp'
+                                        color: (0.4, 0.5, 0.6, 1)
+
+                        # Filter Chips Row
+                        BoxLayout:
+                            orientation: 'horizontal'
+                            size_hint_y: None
+                            height: 38
+                            spacing: 10
+
+                            FilterChip:
+                                text: "All Items"
+                                is_active: root.active_nav == "All Media"
+                                on_release: root.set_active_nav("All Media")
+
+                            FilterChip:
+                                text: "Photos"
+                                is_active: root.active_nav == "Photos"
+                                on_release: root.set_active_nav("Photos")
+
+                            FilterChip:
+                                text: "Videos"
+                                is_active: root.active_nav == "Videos"
+                                on_release: root.set_active_nav("Videos")
+
+                            FilterChip:
+                                text: "Favorites"
+                                is_active: root.active_nav == "Favorites"
+                                on_release: root.set_active_nav("Favorites")
+
+                            Widget:
+
+                        # ─── Scrollable Media Grid ───
+                        ScrollView:
+                            do_scroll_x: False
+                            bar_width: 6
+                            bar_color: (0.2, 0.4, 0.6, 0.5)
+                            bar_inactive_color: (0.15, 0.2, 0.3, 0.3)
+
+                            GridLayout:
+                                id: media_grid
+                                cols: 4
+                                spacing: 16
+                                padding: [0, 8, 0, 8]
+                                size_hint_y: None
+                                height: self.minimum_height
+                                col_default_width: 200
+                                row_default_height: 220
+
+                        # Load More + Counter
+                        BoxLayout:
+                            orientation: 'vertical'
+                            size_hint_y: None
+                            height: 70
+                            spacing: 8
+
+                            BoxLayout:
+                                size_hint: None, None
+                                size: 200, 36
+                                pos_hint: {"center_x": 0.5}
+                                canvas.before:
+                                    Color:
+                                        rgba: (0.1, 0.14, 0.22, 1)
+                                    RoundedRectangle:
+                                        pos: self.pos
+                                        size: self.size
+                                        radius: [18]
+                                    Color:
+                                        rgba: (0.2, 0.28, 0.4, 0.6)
+                                    Line:
+                                        rounded_rectangle: [self.x, self.y, self.width, self.height, 18]
+                                        width: 1
+
+                                Label:
+                                    text: "Load More Captures"
+                                    font_size: '12sp'
+                                    bold: True
+                                    color: (0.75, 0.8, 0.9, 1)
+
+                            Label:
+                                text: "SHOWING " + str(root.shown_items) + " OF " + str(root.total_items) + " ITEMS"
+                                font_size: '10sp'
+                                color: (0.35, 0.4, 0.5, 1)
+                                size_hint_y: None
+                                height: 20
 
                 Screen:
                     name: "Settings"
@@ -688,7 +904,7 @@
                                     CustomSettingItem:
                                         icon: Icons.wifi
                                         text: "Drone IP Address"
-                                        value: app.args.ip if app.args else "192.168.10.1"
+                                        value: app.drone_ip
                                         on_release: app.on_action("EDIT_IP")
                                     
                                     CustomSettingItem:
@@ -715,7 +931,8 @@
                                     CustomSettingItem:
                                         icon: Icons.file_document
                                         text: "Model Type"
-                                        value: app.args.model.upper() if app.args else "AUTO"
+                                        value: app.model_type
+                                        on_release: app.on_action("CYCLE_MODEL")
                                 
                                 # Flight Group
                                 SettingGroup:
@@ -724,131 +941,335 @@
                                     CustomSettingItem:
                                         icon: Icons.camera
                                         text: "Downward Camera"
-                                        value: "OFF"
-                                        on_release: app.on_action("CAM")
-                                    
-                                    CustomSettingItem:
-                                        icon: Icons.tune
-                                        text: "Visual Calibration"
-                                        value: "START"
-                                        on_release: app.on_action("CALIB_VIS")
-
+                                        value: app.downward_cam_status
+                                        on_release: app.on_action("TOGGLE_DOWNWARD_CAM")
                 Screen:
                     name: "LED"
                     BoxLayout:
                         orientation: 'vertical'
-                        padding: [40, 20, 40, 70]
-                        spacing: 24
+                        padding: [30, 15, 30, 20]
+                        spacing: 16
                         
                         Label:
                             text: "Drone LED Matrix Control"
-                            font_size: '26sp'
+                            font_size: '22sp'
                             bold: True
                             color: (1, 1, 1, 1)
                             size_hint_y: None
-                            height: 40
+                            height: 32
                             text_size: self.size
                             halign: 'left'
                         
                         BoxLayout:
                             orientation: 'horizontal'
-                            spacing: 30
+                            spacing: 24
                             
-                            # Left side: Drawing Grid
+                            # Left side: Drawing Grid & Tools
                             BoxLayout:
                                 orientation: 'vertical'
-                                spacing: 10
-                                size_hint_x: 0.5
+                                spacing: 12
+                                size_hint_x: 0.45
+                                padding: [16, 16, 16, 16]
+                                canvas.before:
+                                    Color:
+                                        rgba: (20/255, 27/255, 45/255, 0.7)
+                                    RoundedRectangle:
+                                        pos: self.pos
+                                        size: self.size
+                                        radius: [12]
+                                    Color:
+                                        rgba: (0.15, 0.22, 0.35, 0.3)
+                                    Line:
+                                        rounded_rectangle: [self.x, self.y, self.width, self.height, 12]
+                                        width: 1
                                 
                                 Label:
-                                    text: "MANUAL DRAWING"
+                                    text: "DRAWING CANVAS"
                                     font_size: '10sp'
                                     bold: True
-                                    color: (0.4, 0.5, 0.6, 1)
+                                    color: (0.2, 0.65, 1, 1)
                                     size_hint_y: None
-                                    height: 16
+                                    height: 14
                                     text_size: self.size
                                     halign: 'left'
 
-                                LEDDrawingGrid:
-                                    id: led_grid
-                                    size_hint: None, None
-                                    size: 240, 240
+                                # Centered canvas container
+                                AnchorLayout:
+                                    anchor_x: 'center'
+                                    anchor_y: 'center'
+                                    
+                                    LEDDrawingGrid:
+                                        id: led_grid
+                                        size_hint: None, None
+                                        size: 200, 200
+
+                                # Color Palette Row
+                                BoxLayout:
+                                    orientation: 'horizontal'
+                                    size_hint_y: None
+                                    height: 38
+                                    spacing: 14
+                                    padding: [10, 0, 10, 0]
+                                    
+                                    # Off / Eraser (Dark outline brush)
+                                    HoverButton:
+                                        size_hint: None, None
+                                        size: 30, 30
+                                        background_normal: ''
+                                        background_color: (30/255, 38/255, 58/255, 1)
+                                        canvas.after:
+                                            Color:
+                                                rgba: (1, 1, 1, 1) if led_grid.active_color == '0' else (1, 1, 1, 0.1)
+                                            Line:
+                                                circle: (self.center_x, self.center_y, 14)
+                                                width: 2 if led_grid.active_color == '0' else 1
+                                        text: Icons.eraser
+                                        font_name: 'Icons'
+                                        font_size: '12sp'
+                                        color: (0.6, 0.7, 0.8, 1)
+                                        on_release: led_grid.active_color = '0'
+                                        
+                                    # Red Brush
+                                    HoverButton:
+                                        size_hint: None, None
+                                        size: 30, 30
+                                        background_normal: ''
+                                        background_color: (255/255, 60/255, 80/255, 1)
+                                        canvas.after:
+                                            Color:
+                                                rgba: (1, 1, 1, 1) if led_grid.active_color == 'r' else (1, 1, 1, 0.1)
+                                            Line:
+                                                circle: (self.center_x, self.center_y, 14)
+                                                width: 2 if led_grid.active_color == 'r' else 1
+                                        on_release: led_grid.active_color = 'r'
+                                        
+                                    # Blue Brush
+                                    HoverButton:
+                                        size_hint: None, None
+                                        size: 30, 30
+                                        background_normal: ''
+                                        background_color: (0/255, 160/255, 255/255, 1)
+                                        canvas.after:
+                                            Color:
+                                                rgba: (1, 1, 1, 1) if led_grid.active_color == 'b' else (1, 1, 1, 0.1)
+                                            Line:
+                                                circle: (self.center_x, self.center_y, 14)
+                                                width: 2 if led_grid.active_color == 'b' else 1
+                                        on_release: led_grid.active_color = 'b'
+                                        
+                                    # Purple Brush
+                                    HoverButton:
+                                        size_hint: None, None
+                                        size: 30, 30
+                                        background_normal: ''
+                                        background_color: (180/255, 70/255, 255/255, 1)
+                                        canvas.after:
+                                            Color:
+                                                rgba: (1, 1, 1, 1) if led_grid.active_color == 'p' else (1, 1, 1, 0.1)
+                                            Line:
+                                                circle: (self.center_x, self.center_y, 14)
+                                                width: 2 if led_grid.active_color == 'p' else 1
+                                        on_release: led_grid.active_color = 'p'
                                 
                                 BoxLayout:
                                     orientation: 'horizontal'
                                     size_hint_y: None
-                                    height: 40
-                                    spacing: 10
+                                    height: 36
+                                    spacing: 12
                                     
-                                    Button:
-                                        text: "CLEAR GRID"
+                                    HoverButton:
+                                        text: "CLEAR"
+                                        background_normal: ''
+                                        background_color: (40/255, 20/255, 30/255, 1)
+                                        color: (0.9, 0.4, 0.4, 1)
                                         on_release: led_grid.clear_grid()
-                                    Button:
-                                        text: "SEND PATTERN"
-                                        background_color: (0.2, 0.7, 0.4, 1)
+                                    HoverButton:
+                                        text: "SEND TO DRONE"
+                                        background_normal: ''
+                                        background_color: (0.1, 0.6, 0.35, 1)
+                                        bold: True
+                                        color: (1, 1, 1, 1)
                                         on_release: app.on_action("LED_PATTERN_CUSTOM", led_grid.get_pattern_string())
 
-                            # Right side: Presets & Text
+                            # Right side: Presets & Scrolling Text
                             BoxLayout:
                                 orientation: 'vertical'
-                                spacing: 20
-                                size_hint_x: 0.5
+                                spacing: 14
+                                size_hint_x: 0.55
                                 
                                 # Text Scrolling Section
                                 BoxLayout:
                                     orientation: 'vertical'
                                     size_hint_y: None
-                                    height: 120
-                                    spacing: 12
-                                    padding: [20, 15, 20, 15]
+                                    height: 154
+                                    spacing: 8
+                                    padding: [16, 12, 16, 12]
                                     canvas.before:
                                         Color:
-                                            rgba: (16/255, 22/255, 36/255, 1)
+                                            rgba: (20/255, 27/255, 45/255, 0.7)
                                         RoundedRectangle:
                                             pos: self.pos
                                             size: self.size
                                             radius: [12]
+                                        Color:
+                                            rgba: (0.15, 0.22, 0.35, 0.3)
+                                        Line:
+                                            rounded_rectangle: [self.x, self.y, self.width, self.height, 12]
+                                            width: 1
 
                                     Label:
-                                        text: "SCROLL TEXT"
+                                        text: "SCROLLING TEXT CONTROLLER"
                                         font_size: '10sp'
                                         bold: True
-                                        color: (0.4, 0.5, 0.6, 1)
+                                        color: (0.2, 0.65, 1, 1)
                                         size_hint_y: None
-                                        height: 16
+                                        height: 14
                                         text_size: self.size
                                         halign: 'left'
 
                                     BoxLayout:
                                         orientation: 'horizontal'
-                                        spacing: 12
+                                        spacing: 10
+                                        size_hint_y: None
+                                        height: 36
                                         
                                         TextInput:
                                             id: led_text_input
-                                            hint_text: "Type something..."
+                                            hint_text: "Type custom message..."
                                             multiline: False
-                                            padding: [12, 12]
+                                            padding: [10, 8]
                                             background_normal: ''
                                             background_color: (10/255, 15/255, 25/255, 1)
                                             foreground_color: (1, 1, 1, 1)
-                                            font_size: '14sp'
+                                            font_size: '12sp'
                                         
-                                        Button:
+                                        HoverButton:
                                             text: "SEND"
                                             size_hint_x: None
-                                            width: 80
+                                            width: 70
+                                            background_normal: ''
                                             background_color: (0, 0.45, 0.8, 1)
-                                            on_release: app.on_action("LED_TEXT", led_text_input.text)
+                                            bold: True
+                                            on_release: app.on_action("LED_TEXT", led_text_input.text, root.scroll_color, root.scroll_dir)
+
+                                    # Color & Direction selections
+                                    BoxLayout:
+                                        orientation: 'horizontal'
+                                        spacing: 12
+                                        
+                                        # Color Selector Column
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            spacing: 4
+                                            Label:
+                                                text: "TEXT COLOR"
+                                                font_size: '8sp'
+                                                color: (0.45, 0.5, 0.6, 1)
+                                                bold: True
+                                                size_hint_y: None
+                                                height: 10
+                                                text_size: self.size
+                                                halign: 'left'
+                                            BoxLayout:
+                                                orientation: 'horizontal'
+                                                spacing: 8
+                                                # Red selection
+                                                HoverButton:
+                                                    size_hint: None, None
+                                                    size: 24, 24
+                                                    background_normal: ''
+                                                    background_color: (1, 0.2, 0.2, 1)
+                                                    canvas.after:
+                                                        Color:
+                                                            rgba: (1, 1, 1, 1) if root.scroll_color == 'r' else (1, 1, 1, 0)
+                                                        Line:
+                                                            circle: (self.center_x, self.center_y, 11)
+                                                            width: 2
+                                                    on_release: root.scroll_color = 'r'
+                                                # Blue selection
+                                                HoverButton:
+                                                    size_hint: None, None
+                                                    size: 24, 24
+                                                    background_normal: ''
+                                                    background_color: (0.2, 0.6, 1, 1)
+                                                    canvas.after:
+                                                        Color:
+                                                            rgba: (1, 1, 1, 1) if root.scroll_color == 'b' else (1, 1, 1, 0)
+                                                        Line:
+                                                            circle: (self.center_x, self.center_y, 11)
+                                                            width: 2
+                                                    on_release: root.scroll_color = 'b'
+                                                # Purple selection
+                                                HoverButton:
+                                                    size_hint: None, None
+                                                    size: 24, 24
+                                                    background_normal: ''
+                                                    background_color: (0.7, 0.2, 1, 1)
+                                                    canvas.after:
+                                                        Color:
+                                                            rgba: (1, 1, 1, 1) if root.scroll_color == 'p' else (1, 1, 1, 0)
+                                                        Line:
+                                                            circle: (self.center_x, self.center_y, 11)
+                                                            width: 2
+                                                    on_release: root.scroll_color = 'p'
+
+                                        # Direction Selector Column
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            spacing: 4
+                                            Label:
+                                                text: "SCROLL DIRECTION"
+                                                font_size: '8sp'
+                                                color: (0.45, 0.5, 0.6, 1)
+                                                bold: True
+                                                size_hint_y: None
+                                                height: 10
+                                                text_size: self.size
+                                                halign: 'left'
+                                            BoxLayout:
+                                                orientation: 'horizontal'
+                                                spacing: 4
+                                                # Left
+                                                HoverButton:
+                                                    text: "L"
+                                                    font_size: '9sp'
+                                                    bold: True
+                                                    background_normal: ''
+                                                    background_color: (0, 0.45, 0.8, 1) if root.scroll_dir == 'l' else (30/255, 38/255, 58/255, 1)
+                                                    on_release: root.scroll_dir = 'l'
+                                                # Right
+                                                HoverButton:
+                                                    text: "R"
+                                                    font_size: '9sp'
+                                                    bold: True
+                                                    background_normal: ''
+                                                    background_color: (0, 0.45, 0.8, 1) if root.scroll_dir == 'r' else (30/255, 38/255, 58/255, 1)
+                                                    on_release: root.scroll_dir = 'r'
+                                                # Up
+                                                HoverButton:
+                                                    text: "U"
+                                                    font_size: '9sp'
+                                                    bold: True
+                                                    background_normal: ''
+                                                    background_color: (0, 0.45, 0.8, 1) if root.scroll_dir == 'u' else (30/255, 38/255, 58/255, 1)
+                                                    on_release: root.scroll_dir = 'u'
+                                                # Down
+                                                HoverButton:
+                                                    text: "D"
+                                                    font_size: '9sp'
+                                                    bold: True
+                                                    background_normal: ''
+                                                    background_color: (0, 0.45, 0.8, 1) if root.scroll_dir == 'd' else (30/255, 38/255, 58/255, 1)
+                                                    on_release: root.scroll_dir = 'd'
 
                                 # Patterns Section
                                 Label:
-                                    text: "PRESET PATTERNS"
+                                    text: "PRESET PATTERNS LIBRARY"
                                     font_size: '10sp'
                                     bold: True
-                                    color: (0.4, 0.5, 0.6, 1)
+                                    color: (0.2, 0.65, 1, 1)
                                     size_hint_y: None
-                                    height: 16
+                                    height: 14
                                     text_size: self.size
                                     halign: 'left'
 
@@ -856,20 +1277,49 @@
                                     cols: 2
                                     spacing: 10
                                     size_hint_y: None
-                                    height: 120
+                                    height: 154
                                     
-                                    Button:
+                                    PresetCard:
                                         text: "HEART"
-                                        on_release: app.on_action("LED_PATTERN", "heart")
-                                    Button:
+                                        icon: Icons.heart
+                                        pattern_string: "000000000rr00rr0rrrrrrrrrrrrrrrr0rrrrrr000rrrr0000rr000000000000"
+                                        grid_id: led_grid
+                                        color_theme: (1, 0.2, 0.3, 1)
+                                        
+                                    PresetCard:
                                         text: "SMILE"
-                                        on_release: app.on_action("LED_PATTERN", "smile")
-                                    Button:
+                                        icon: Icons.emoticon_happy
+                                        pattern_string: "0000000000rrrr000r0000r0r0rrrr0rr0rrrr0rr00000r000rrrr0000000000"
+                                        grid_id: led_grid
+                                        color_theme: (1, 0.7, 0.1, 1)
+                                        
+                                    PresetCard:
                                         text: "ARROW"
-                                        on_release: app.on_action("LED_PATTERN", "arrow")
-                                    Button:
+                                        icon: Icons.arrow_right
+                                        pattern_string: "0000r000000rr00000rrrr000000r0000000r0000000r0000000r00000000000"
+                                        grid_id: led_grid
+                                        color_theme: (0.2, 0.8, 0.4, 1)
+                                        
+                                    PresetCard:
+                                        text: "CROSS"
+                                        icon: Icons.close_circle
+                                        pattern_string: "r000000r0r0000r000r00r00000rr000000rr00000r00r000r0000r0r000000r"
+                                        grid_id: led_grid
+                                        color_theme: (0.9, 0.3, 0.3, 1)
+                                        
+                                    PresetCard:
+                                        text: "SQUARE"
+                                        icon: Icons.circle_outline
+                                        pattern_string: "bbbbbbbbb000000bb000000bb000000bb000000bb000000bb000000bbbbbbbbb"
+                                        grid_id: led_grid
+                                        color_theme: (0.7, 0.2, 1, 1)
+                                        
+                                    PresetCard:
                                         text: "GOOSE"
-                                        on_release: app.on_action("LED_PATTERN", "goose")
+                                        icon: Icons.quadcopter
+                                        pattern_string: "0000000000rr00000000rr0000000rr0000000rr0rr000rr0rr00rr000000000"
+                                        grid_id: led_grid
+                                        color_theme: (0.7, 0.2, 1, 1)
                                 
                                 Widget: # Spacer
 
@@ -902,7 +1352,13 @@
                         halign: 'left'
                         text_size: self.size
                     
-                    Button:
+                    HoverButton:
+                        text: "[font=Icons]" + Icons.open_in_new + "[/font]  SYSTEM VIEWER"
+                        size_hint_x: None
+                        width: 160
+                        on_release: root.open_in_system_viewer()
+                    
+                    HoverButton:
                         text: Icons.close + " CLOSE"
                         font_name: 'Icons'
                         size_hint_x: None
@@ -915,6 +1371,8 @@
 
     # ===== BOTTOM ACTION BAR =====
     BoxLayout:
+        opacity: 1 if (root.selection_mode and root.active_nav in ["All Media", "Photos", "Videos", "Favorites"]) else 0
+        disabled: not (root.selection_mode and root.active_nav in ["All Media", "Photos", "Videos", "Favorites"])
         orientation: 'horizontal'
         size_hint: None, None
         size: 580, 50
@@ -1036,7 +1494,7 @@
                 color: (0.9, 0.3, 0.3, 1)
 
         # Close (X)
-        Button:
+        HoverButton:
             text: Icons.close
             font_name: 'Icons'
             font_size: '18sp'
@@ -1048,7 +1506,7 @@
             on_release: app.close_media_gallery()
 
     # ===== CLOSE BUTTON (top-right) =====
-    Button:
+    HoverButton:
         text: Icons.close
         font_name: 'Icons'
         font_size: '20sp'

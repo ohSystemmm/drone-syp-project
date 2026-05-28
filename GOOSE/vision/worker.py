@@ -34,6 +34,7 @@ class VisionWorker(threading.Thread):
         self._last_target_info_time = 0.0
         self._control_min_conf = 0.30
         self.detection_enabled = True
+        self.is_paused = False
 
     def _is_pose_control_valid(self, det, est):
         """Minimal gating — only reject truly unusable poses."""
@@ -149,6 +150,11 @@ class VisionWorker(threading.Thread):
     def run(self):
         logger.info("Vision Worker Started (Hybrid Sampling Active)")
         while self.running:
+            if self.is_paused:
+                self.latest_detections = []
+                self.latest_pose = None
+                time.sleep(0.1)
+                continue
             frame = self.controller.get_frame()
             if frame is not None and frame.size > 0:
                 self._frame_counter += 1

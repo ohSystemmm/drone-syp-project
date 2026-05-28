@@ -42,13 +42,16 @@ class DroneRegistry:
             self.last_active_ip = None
 
     def _save(self):
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        data = {
-            "drones": self.drones,
-            "last_active_ip": self.last_active_ip,
-        }
-        with open(self.path, 'w') as f:
-            json.dump(data, f, indent=2)
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            data = {
+                "drones": self.drones,
+                "last_active_ip": self.last_active_ip,
+            }
+            with open(self.path, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error("[DroneRegistry] Failed to save: %s", e)
 
     def add_or_update(self, ip: str, name: str = ""):
         """Add a new drone or update existing entry. Marks as last used."""

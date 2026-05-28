@@ -16,6 +16,7 @@ class Icons:
     alert_octagon = "\U000F0029"
     content_save = "\U000F0193"
     arrow_bottom_right = "\U000F0043"
+    open_in_new = "\U000F03AF"
 
     # Media Gallery icons
     image = "\U000F0E09"           # mdi-image-outline
@@ -47,10 +48,19 @@ class Icons:
     target = "\U000F0A31"
     file_document = "\U000F0223"
     tune = "\U000F05B0"
+    eye = "\U000F0208"
+    eraser = "\U000F01FC"
+    brush = "\U000F00BC"
+    palette = "\U000F03DC"
+    heart = "\U000F02D1"
+    emoticon_happy = "\U000F01F4"
+    arrow_right = "\U000F0054"
+    close_circle = "\U000F0159"
     # Drone Manager icons
     quadcopter = "\U000F0C85"       # mdi-quadcopter / rotate-3d-variant
     pencil = "\U000F03EB"           # mdi-pencil
     plus = "\U000F0415"             # mdi-plus
+    help_circle = "\U000F02D7"      # mdi-help-circle-outline
         # mdi-calendar
 
     @classmethod

@@ -24,6 +24,9 @@ class HybridSampler:
         self.context_interval = max(1, int(stream_fps / context_fps))
         self.frame_count = 0
         
+        # Add flag to disable uncertainty sampling to save resources
+        self.save_uncertain = False
+        
         # Use a ThreadPoolExecutor for lightweight, non-blocking disk writes
         self.executor = ThreadPoolExecutor(max_workers=2)
 
@@ -54,17 +57,18 @@ class HybridSampler:
             context_path = os.path.join(self.context_dir, f"context_{timestamp}_{self.frame_count}.jpg")
             self.executor.submit(self._save_image, context_path, frame.copy())
 
-        # 2. Uncertainty Collection (Confidence between 0.20 and 0.60)
-        uncertain_detections = [d for d in detections if 0.20 <= d.get('conf', 0) <= 0.60]
-        
-        if uncertain_detections:
-            best_conf = uncertain_detections[0]['conf']
-            uncertain_path = os.path.join(
-                self.uncertain_dir, 
-                f"uncertain_{best_conf:.2f}_{timestamp}.jpg"
-            )
-            print(f"[Sampler] Uncertainty Trigger! Conf: {best_conf:.2f}. Saving frame...")
-            self.executor.submit(self._save_image, uncertain_path, frame.copy())
+        # 2. Uncertainty Collection (Confidence between 0.20 and 0.60) - disabled by default
+        if self.save_uncertain:
+            uncertain_detections = [d for d in detections if 0.20 <= d.get('conf', 0) <= 0.60]
+            
+            if uncertain_detections:
+                best_conf = uncertain_detections[0]['conf']
+                uncertain_path = os.path.join(
+                    self.uncertain_dir, 
+                    f"uncertain_{best_conf:.2f}_{timestamp}.jpg"
+                )
+                print(f"[Sampler] Uncertainty Trigger! Conf: {best_conf:.2f}. Saving frame...")
+                self.executor.submit(self._save_image, uncertain_path, frame.copy())
 
     def close(self):
         """Shut down the background executor."""
