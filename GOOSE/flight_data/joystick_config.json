@@ -1,0 +1,16 @@
+{
+    "mapping": {
+        "roll_axis": 0,
+        "pitch_axis": 2,
+        "throttle_axis": 1,
+        "yaw_axis": 3
+    },
+    "config": {
+        "invert_roll": false,
+        "invert_pitch": false,
+        "invert_throttle": true,
+        "invert_yaw": false,
+        "deadzone": 0.1,
+        "expo": 0.5
+    }
+}

@@ -1,0 +1,70 @@
+{
+    "takeoff": {
+        "type": "key",
+        "val": 116
+    },
+    "land": {
+        "type": "key",
+        "val": 108
+    },
+    "emergency": {
+        "type": "key",
+        "val": 27
+    },
+    "flip_f": {
+        "type": "btn",
+        "val": 0
+    },
+    "flip_b": {
+        "type": "btn",
+        "val": 3
+    },
+    "flip_l": {
+        "type": "btn",
+        "val": 2
+    },
+    "flip_r": {
+        "type": "btn",
+        "val": 1
+    },
+    "acro_toggle": {
+        "type": "key",
+        "val": 109
+    },
+    "auto_toggle": {
+        "type": "key",
+        "val": 112
+    },
+    "calib_vis": {
+        "type": "key",
+        "val": 1073741886
+    },
+    "calib_stk": {
+        "type": "key",
+        "val": 1073741888
+    },
+    "rec_calib": {
+        "type": "key",
+        "val": 99
+    },
+    "cycle_joy": {
+        "type": "key",
+        "val": 110
+    },
+    "autopilot_toggle": {
+        "type": "key",
+        "val": 112
+    },
+    "calib_vision": {
+        "type": "key",
+        "val": 1073741886
+    },
+    "calib_stick": {
+        "type": "key",
+        "val": 1073741888
+    },
+    "record_calib": {
+        "type": "key",
+        "val": 99
+    }
+}
