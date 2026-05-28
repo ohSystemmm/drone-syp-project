@@ -1,0 +1,50 @@
+graph TB
+    %% Theme and Styling Configuration
+    classDef device fill:#fff,stroke:#333,stroke-width:2px;
+    classDef env fill:#fafafa,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5;
+    classDef component fill:#f1f1f1,stroke:#333,stroke-width:1px;
+
+    title[Deployment Architecture]
+    style title fill:none,stroke:none,font-weight:bold,font-size:18px;
+
+    %% --- Ground Control Station Device ---
+    subgraph GCS ["Ground Control Station (PC / Laptop / Mobile) «Device»"]
+        
+        subgraph PythonEnv ["Python 3 Runtime «Execution Environment»"]
+            
+            subgraph Frontend ["Frontend Subsystem"]
+                KivyApp["Kivy App (GUI & HUD) «Artifact»"]
+            end
+            class Frontend component;
+            
+            subgraph Core ["Core & Control"]
+                DroneCtrl["Drone Controller «Artifact»"]
+                AutoPilot["AutoPilot (PID/Orbit) «Artifact»"]
+            end
+            class Core component;
+            
+            subgraph Vision ["Vision & AI Pipeline"]
+                VisionWorker["Vision Worker Thread «Artifact»"]
+                YOLO["YOLO Object Detector «Artifact»"]
+                Pose["Pose Estimator «Artifact»"]
+            end
+            class Vision component;
+
+        end
+        class PythonEnv env;
+
+    end
+    class GCS device;
+
+    %% --- Drone Device ---
+    subgraph Drone ["DJI Tello TT «Device»"]
+        subgraph Firmware ["Drone Firmware"]
+            FC["Flight Controller (UDP Server) «Artifact»"]
+            Cam["Camera / Video Encoder «Artifact»"]
+        end
+        class Firmware component;
+    end
+    class Drone device;
+
+    %% --- Relationships ---
+    Core --> |"[Control Commands]"| Drone
