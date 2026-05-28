@@ -150,19 +150,19 @@ def detect_downward_target(frame_bgr):
     try:
         # Convert to greyscale
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        # Blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Use a larger Gaussian blur to smooth out wood grain, carpet textures, and floor seams
+        blurred = cv2.GaussianBlur(gray, (9, 9), 0)
         
-        # Hough circles
+        # Hough circles with stricter thresholds to eliminate false positives
         circles = cv2.HoughCircles(
             blurred,
             cv2.HOUGH_GRADIENT,
             dp=1.2,
-            minDist=40,
-            param1=50,
-            param2=35,
-            minRadius=10,
-            maxRadius=90
+            minDist=80,      # Avoid multiple nearby overlapping detections
+            param1=70,       # High threshold for Canny edge detector (filters weak edges)
+            param2=45,       # Accumulator threshold (higher = stricter circular shapes required)
+            minRadius=15,    # Filter out tiny spurious circles
+            maxRadius=85     # Filter out overly large shapes
         )
         
         detections = []
