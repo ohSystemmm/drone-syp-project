@@ -1,0 +1,82 @@
+graph TD
+    %% Theme and Styling Configuration
+    %% (Emulating the plain, clean, shadowless look of the original)
+    classDef default fill:#fff,stroke:#333,stroke-width:1px;
+    classDef package fill:#f9f9f9,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5;
+    
+    title[DJI Tello TT Autonomous Flight System Kivy Architecture]
+    style title fill:none,stroke:none,font-weight:bold,font-size:18px;
+
+    %% --- Hardware ---
+    subgraph Hardware ["Hardware"]
+        Tello["DJI Tello TT Drone"]
+        JoystickHardware["Gamepad / Joystick"]
+    end
+
+    %% --- Frontend ---
+    subgraph Frontend ["Frontend (Kivy GUI & OpenGL)"]
+        KivyApp["Kivy App / Clock Scheduler"]
+        HUD["Video HUD Widget<br/>(Kivy Texture)"]
+        ControlCenterUI["Control Center UI<br/>(Kivy Layouts)"]
+        Room3DWidget["3D Room Widget<br/>(Kivy Canvas / GPU)"]
+    end
+    class Frontend package;
+
+    %% --- Input Handling ---
+    subgraph InputHandling ["Input Handling (Headless)"]
+        HeadlessPygame["Headless Pygame<br/>(Event Pump)"]
+        Joystick["Joystick Handler"]
+    end
+    class InputHandling package;
+
+    %% --- Core Integration ---
+    subgraph CoreIntegration ["Core Integration"]
+        DroneCtrl["Drone Controller"]
+        AutoPilot["AutoPilot (PID & Orbit)"]
+        Calibration["Calibration Engine"]
+    end
+    class CoreIntegration package;
+
+    %% --- Vision & AI Pipeline ---
+    subgraph VisionPipeline ["Vision & AI Pipeline (Async Thread)"]
+        VisionWorker["Vision Worker Thread"]
+        YOLODetector["YOLO Object Detector"]
+        PoseEstimator["Position Estimator<br/>(Edge Math + Kalman)"]
+        Aruco["ArUco Calibrator<br/>(Oracle Fusion)"]
+    end
+    class VisionPipeline package;
+
+    %% --- Active Learning & Data ---
+    subgraph ActiveLearning ["Active Learning & Data"]
+        Sampler["Hybrid Sampler"]
+        DataFactory["Data Factory<br/>(RL Jittering)"]
+    end
+    class ActiveLearning package;
+
+    %% --- Relationships & Data Flow ---
+
+    %% Hardware Connections
+    DroneCtrl <.-> |"UDP <br/>(Cmd: 8889, Vid: 11111)"| Tello
+    JoystickHardware --> |"USB / Bluetooth"| HeadlessPygame
+
+    %% Input Flow
+    HeadlessPygame --> |"Parses Axis/Buttons"| Joystick
+    KivyApp --> |"Polls @ 60Hz via Clock"| Joystick
+
+    %% Kivy UI Flow
+    KivyApp --> |"Manages Overlays"| ControlCenterUI
+    KivyApp --> |"Updates Texture (30Hz)"| HUD
+    KivyApp --> |"Feeds 3D Pose"| Room3DWidget
+    KivyApp <--> |"Takeoff, Land, RC Commands"| DroneCtrl
+
+    %% Vision Pipeline Flow
+    DroneCtrl --> |"Raw Video Stream"| VisionWorker
+    VisionWorker --> |"Inference"| YOLODetector
+    VisionWorker --> |"Detect Markers"| Aruco
+    VisionWorker --> |"Extract 3D Pose"| PoseEstimator
+
+    %% Video & Data Handoff
+    YOLODetector --> |"Returns BBoxes"| VisionWorker
+    VisionWorker -.-> |"Thread-Safe Frame Transfer<br/>(Pre-drawn BBoxes)"| HUD
+    PoseEstimator -.-> |"Thread-Safe Pose Transfer"| Room3DWidget
+    PoseEstimator -.-> |"Navigation Data"| AutoPilot
