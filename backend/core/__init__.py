@@ -1,0 +1,1 @@
+"""GOOSE core package."""
