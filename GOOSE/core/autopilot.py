@@ -90,12 +90,12 @@ class AutoPilot:
     # --- Tuning knobs (all distances in cm, angles in degrees) ---
 
     # ALIGN: where we want to be before approaching
-    ALIGN_DISTANCE = 100.0          # Target Z to hold during alignment
+    ALIGN_DISTANCE = 160.0          # Target Z to hold during alignment (increased to 160 for wider approach corridor)
     ALIGN_X_TOL = 25.0              # X error tolerance for "centered"
     ALIGN_Y_TOL = 25.0              # Y error tolerance for "centered"
     ALIGN_Z_TOL = 50.0              # Z error tolerance for "at distance" (wide: Z_SCALE may be uncalibrated)
     ALIGN_ANGLE_TOL = 45.0          # Max acceptable tilt angle (reduced from 70° to ensure ring is upright)
-    ALIGN_HOLD_TIME = 0.7           # Seconds target must stay aligned (increased from 0.3 for stability)
+    ALIGN_HOLD_TIME = 0.3           # Seconds target must stay aligned (lowered to 0.3 to avoid stuck in ALIGN on frame drops)
     ALIGN_MIN_CONF = 0.25           # Minimum confidence to proceed with alignment (safety threshold)
 
     # APPROACH: closing the distance
@@ -114,7 +114,7 @@ class AutoPilot:
     PUNCH_LOCK_TIME = 0.5           # Seconds of lock before punch triggers (increased from 0.2 for stability)
 
     # APPROACH vertical control (preventing 1-meter dive when ring fills frame)
-    APPROACH_Y_DEADZONE = 40.0      # Larger deadzone for vertical during approach (vs 4cm in align)
+    APPROACH_Y_DEADZONE = 6.0       # Tight deadzone for vertical during approach
     Y_ERROR_MAX = 50.0               # Cap on Y error to prevent extreme commands from miscalibration
     RING_FILL_THRESHOLD = 0.65       # bbox_ratio > this = ring fills frame, freeze vertical
 
@@ -122,6 +122,15 @@ class AutoPilot:
     MAX_SPEED = 80                  # Global PID output limit
     MIN_SPEED = 12                  # Tello deadzone floor
     DEADZONE = 4.0                  # Error deadzone (cm)
+
+    # Downward camera centering & descent settings
+    CENTER_TIMEOUT = 10.0
+    CENTER_X_TOL = 32.0             # 20% of 320 width (±32 pixels from center 160)
+    CENTER_Y_TOL = 24.0             # 20% of 240 height (±24 pixels from center 120)
+    CENTER_HOLD_TIME = 1.0
+    CENTER_MAX_STRAFE = 20
+    DESCENT_DURATION = 4.0
+    DESCENT_SPEED = -25             # Negative to descend vertically
 
     # Tracking limits
     TRACKING_TIMEOUT = 0.5          # Seconds without pose before entering search
@@ -250,7 +259,7 @@ class AutoPilot:
 
         # --- No usable pose ---
         if pose is None:
-            if bbox_center is not None:
+            if bbox_center is not None and self.phase == PHASE_ALIGN:
                 return self._compute_bbox_fallback(bbox_center)
             return self._handle_no_tracking(now)
 
@@ -272,7 +281,7 @@ class AutoPilot:
 
     def _compute_align(self, pose, now):
         x_err = pose.x_cm - self.TARGET_X
-        y_err = pose.y_cm - self.TARGET_Y - self._tilt_offset(pose.z_cm)
+        y_err = pose.y_cm - self.TARGET_Y + self._tilt_offset(pose.z_cm)
         z_err = pose.z_cm - self.ALIGN_DISTANCE
 
         x_dz = self._apply_deadzone(x_err, self.DEADZONE)
@@ -312,7 +321,7 @@ class AutoPilot:
             if self._align_stable_since is None:
                 self._align_stable_since = now
             elif (now - self._align_stable_since) >= self.ALIGN_HOLD_TIME:
-                self._transition_to_punch(now, pose.z_cm)
+                self._transition_to_approach()
         else:
             self._align_stable_since = None
 
@@ -336,7 +345,7 @@ class AutoPilot:
 
         # XY correction — tighter PID gains for approach
         x_err = pose.x_cm - self.TARGET_X
-        y_err = pose.y_cm - self.TARGET_Y - self._tilt_offset(pose.z_cm)
+        y_err = pose.y_cm - self.TARGET_Y + self._tilt_offset(pose.z_cm)
 
         x_dz = self._apply_deadzone(x_err, self.DEADZONE)
         y_dz = self._apply_deadzone(y_err, self.DEADZONE)
@@ -392,12 +401,9 @@ class AutoPilot:
             if self._punch_lock_since is None:
                 self._punch_lock_since = now
             elif (now - self._punch_lock_since) >= self.PUNCH_LOCK_TIME:
-                # Transition to CENTER (downward camera) instead of direct punch
-                self.phase = PHASE_CENTER
-                self._center_stable_since = None
-                logger.info("[AutoPilot] APPROACH -> CENTER at z=%.1f conf=%.2f (switching to downward camera)",
-                           pose.z_cm, pose.confidence)
-                return 0, 0, 0, 0  # Stop moving while camera switches
+                # Transition directly to PUNCH (forward burst) through the ring
+                self._transition_to_punch(now, pose.z_cm)
+                return 0, 0, 0, 0
         else:
             self._punch_lock_since = None
 
@@ -460,9 +466,8 @@ class AutoPilot:
         lr = max(-self.CENTER_MAX_STRAFE, min(self.CENTER_MAX_STRAFE, lr))
         fb = max(-self.CENTER_MAX_STRAFE, min(self.CENTER_MAX_STRAFE, fb))
 
-        # Check if centered
-        xy_err = math.hypot(x_err, y_err)
-        if xy_err <= (self.CENTER_X_TOL + self.CENTER_Y_TOL) / 2:
+        # Check if centered (within middle 20% of the screen)
+        if abs(x_err) <= self.CENTER_X_TOL and abs(y_err) <= self.CENTER_Y_TOL:
             if self._center_stable_since is None:
                 self._center_stable_since = now
                 logger.debug("[AutoPilot|CENTER] Ring centered! Waiting for stability...")
@@ -562,6 +567,13 @@ class AutoPilot:
             self._no_track_since = now
 
         time_lost = now - self._no_track_since
+
+        # If tracking is lost during APPROACH, immediately reset to ALIGN
+        if self.phase == PHASE_APPROACH and time_lost >= self.TRACKING_TIMEOUT:
+            logger.warning("[AutoPilot] Tracking lost in APPROACH -> ALIGN")
+            self._reset_to_align()
+            return 0, 0, 0, 0
+
         if time_lost >= self.SEARCH_DELAY and self.phase == PHASE_ALIGN:
             # Simple yaw search — no sweep reversal complexity
             logger.debug("[AutoPilot] Search yaw (lost=%.1fs)", time_lost)
@@ -586,7 +598,7 @@ class AutoPilot:
 
     def _transition_to_punch(self, now, distance_cm):
         print(f"[AutoPilot] Target Locked at {distance_cm:.0f}cm! -> PUNCH")
-        logger.info("[AutoPilot] ALIGN -> PUNCH")
+        logger.info("[AutoPilot] %s -> PUNCH", self.phase)
         self.phase = PHASE_PUNCH
         self._punch_start_time = now
         
@@ -598,9 +610,9 @@ class AutoPilot:
         print("[AutoPilot] Target Locked! -> APPROACH")
         logger.info("[AutoPilot] ALIGN -> APPROACH")
         self.phase = PHASE_APPROACH
-        # Tighter lateral gains for approach with slightly higher limits for responsiveness
-        self.pid_lr.set_gains(kp=1.2, ki=0.05, kd=0.5, output_limit=25)
-        self.pid_ud.set_gains(kp=1.2, ki=0.05, kd=0.5, output_limit=25)
+        # Tighter lateral gains for approach with higher limits for responsiveness to fight drift/wind
+        self.pid_lr.set_gains(kp=1.2, ki=0.05, kd=0.5, output_limit=50)
+        self.pid_ud.set_gains(kp=1.2, ki=0.05, kd=0.5, output_limit=50)
         self.pid_yaw.set_gains(kp=0.5, ki=0.05, kd=0.15, output_limit=40)
         self._approach_start_time = None
         self._punch_lock_since = None
@@ -652,7 +664,7 @@ class AutoPilot:
         """Camera tilt Y compensation that scales with distance, capped to prevent
         wild corrections when Z_SCALE is uncalibrated."""
         offset = z_cm * math.tan(math.radians(self.CAMERA_TILT_DEG))
-        return min(offset, 25.0)  # Cap at 25cm regardless of Z
+        return min(offset, 80.0)  # Cap at 80cm to allow full compensation up to 4 meters
 
     def _apply_min_speed(self, value):
         val_int = int(value)

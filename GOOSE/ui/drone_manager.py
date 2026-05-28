@@ -160,6 +160,7 @@ class DroneManager(FloatLayout):
         # Update args IP and reconnect
         if app.args:
             app.args.ip = ip
+        app.drone_ip = ip
         app.drone_registry.last_active_ip = ip
         app.drone_registry._save()
 
