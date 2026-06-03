@@ -97,3 +97,13 @@ uritemplate==4.1.1
 urllib3==2.2.3
 wheel==0.45.1
 zipp==3.20.2
+fastapi
+uvicorn
+pydantic
+numpy==1.24.4
+opencv-python==4.13.0.90
+djitellopy==2.5.0
+ultralytics==8.4.26
+onnxruntime==1.19.2
+python-dotenv==1.0.1
+av==12.3.0
