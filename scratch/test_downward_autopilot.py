@@ -8,6 +8,9 @@ sys.path.insert(0, r"c:\Users\Quark\PycharmProjects\GOOSE\backend")
 
 from core.autopilot import AutoPilot, PHASE_CENTER, PHASE_DESCENT, PHASE_DONE
 
+DOWNWARD_FRAME = (320, 240)
+
+
 class TestDownwardAutoPilot(unittest.TestCase):
     def setUp(self):
         self.autopilot = AutoPilot()
@@ -25,7 +28,12 @@ class TestDownwardAutoPilot(unittest.TestCase):
         # x_err = 100 - 160 = -60. Since |x_err| > 32 (CENTER_X_TOL), it's not centered.
         # y_err = 90 - 120 = -30. Since |y_err| > 24 (CENTER_Y_TOL), it's not centered.
         now = time.monotonic()
-        lr, fb, ud, yv = self.autopilot.compute(pose=None, bbox_center=(100, 90), bbox_ratio=0.1)
+        lr, fb, ud, yv = self.autopilot.compute(
+            pose=None,
+            bbox_center=(100, 90),
+            bbox_ratio=0.1,
+            frame_size=DOWNWARD_FRAME,
+        )
         
         # We expect positive lr to move right (to correct negative error)
         # We expect positive fb to move forward (to correct negative error)
@@ -42,7 +50,12 @@ class TestDownwardAutoPilot(unittest.TestCase):
         print("\nSending centered target...")
         t0 = time.monotonic()
         with patch('time.monotonic', return_value=t0):
-            lr, fb, ud, yv = self.autopilot.compute(pose=None, bbox_center=(160, 120), bbox_ratio=0.1)
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=(160, 120),
+                bbox_ratio=0.1,
+                frame_size=DOWNWARD_FRAME,
+            )
             self.assertEqual((lr, fb, ud, yv), (0, 0, 0, 0))
             self.assertEqual(self.autopilot.phase, PHASE_CENTER, "Should stay in CENTER phase initially to verify stability")
             self.assertIsNotNone(self.autopilot._center_stable_since, "Stability timer should have started")
@@ -51,14 +64,24 @@ class TestDownwardAutoPilot(unittest.TestCase):
         t1 = t0 + 0.5
         print(f"Advancing time by 0.5s (elapsed = 0.5s / hold time = 1.0s)...")
         with patch('time.monotonic', return_value=t1):
-            lr, fb, ud, yv = self.autopilot.compute(pose=None, bbox_center=(160, 120), bbox_ratio=0.1)
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=(160, 120),
+                bbox_ratio=0.1,
+                frame_size=DOWNWARD_FRAME,
+            )
             self.assertEqual(self.autopilot.phase, PHASE_CENTER, "Should still be in CENTER phase")
 
         # 5. Fast forward time past the 1.0s hold duration (e.g. 1.2s total)
         t2 = t0 + 1.2
         print(f"Advancing time by 1.2s (elapsed = 1.2s / hold time = 1.0s)...")
         with patch('time.monotonic', return_value=t2):
-            lr, fb, ud, yv = self.autopilot.compute(pose=None, bbox_center=(160, 120), bbox_ratio=0.1)
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=(160, 120),
+                bbox_ratio=0.1,
+                frame_size=DOWNWARD_FRAME,
+            )
             # The transition command should be (0, 0, 0, 0)
             self.assertEqual((lr, fb, ud, yv), (0, 0, 0, 0))
             self.assertEqual(self.autopilot.phase, PHASE_DESCENT, "Should transition to DESCENT phase")
@@ -69,7 +92,12 @@ class TestDownwardAutoPilot(unittest.TestCase):
         t3 = t2 + 1.0
         print("\nComputing descent command...")
         with patch('time.monotonic', return_value=t3):
-            lr, fb, ud, yv = self.autopilot.compute(pose=None, bbox_center=(160, 120), bbox_ratio=0.1)
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=(160, 120),
+                bbox_ratio=0.1,
+                frame_size=DOWNWARD_FRAME,
+            )
             print(f"Descent command: lr={lr}, fb={fb}, ud={ud}, yv={yv}")
             self.assertEqual(ud, -25, "Descent speed should be -25 (downward)")
             self.assertEqual(lr, 0)
@@ -81,11 +109,69 @@ class TestDownwardAutoPilot(unittest.TestCase):
         t4 = t2 + 4.1
         print("Advancing time past DESCENT_DURATION (4.0s)...")
         with patch('time.monotonic', return_value=t4):
-            lr, fb, ud, yv = self.autopilot.compute(pose=None, bbox_center=None, bbox_ratio=0.0)
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=None,
+                bbox_ratio=0.0,
+                frame_size=DOWNWARD_FRAME,
+            )
             self.assertEqual((lr, fb, ud, yv), (0, 0, 0, 0))
             self.assertEqual(self.autopilot.phase, PHASE_DONE, "Should transition to DONE phase")
 
         print("SUCCESS: Downward Autopilot State Machine passed all checks!")
+
+    def test_descent_stops_after_target_loss_grace_period(self):
+        print("\n--- Running Downward Descent Target-Loss Stop Test ---")
+
+        self.autopilot.engage_downward()
+        t0 = time.monotonic()
+
+        with patch('time.monotonic', return_value=t0):
+            self.autopilot.compute(
+                pose=None,
+                bbox_center=(160, 120),
+                bbox_ratio=0.1,
+                frame_size=DOWNWARD_FRAME,
+            )
+        with patch('time.monotonic', return_value=t0 + self.autopilot.CENTER_HOLD_TIME + 0.1):
+            self.autopilot.compute(
+                pose=None,
+                bbox_center=(160, 120),
+                bbox_ratio=0.1,
+                frame_size=DOWNWARD_FRAME,
+            )
+        self.assertEqual(self.autopilot.phase, PHASE_DESCENT)
+
+        with patch('time.monotonic', return_value=t0 + self.autopilot.CENTER_HOLD_TIME + 0.2):
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=(160, 120),
+                bbox_ratio=0.1,
+                frame_size=DOWNWARD_FRAME,
+            )
+        self.assertEqual((lr, fb, ud, yv), (0, 0, -25, 0))
+
+        loss_start = t0 + self.autopilot.CENTER_HOLD_TIME + 0.3
+        with patch('time.monotonic', return_value=loss_start):
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=None,
+                bbox_ratio=0.0,
+                frame_size=DOWNWARD_FRAME,
+            )
+        self.assertEqual((lr, fb, ud, yv), (0, 0, -25, 0), "Brief loss should continue descent")
+
+        with patch('time.monotonic', return_value=loss_start + 0.6):
+            lr, fb, ud, yv = self.autopilot.compute(
+                pose=None,
+                bbox_center=None,
+                bbox_ratio=0.0,
+                frame_size=DOWNWARD_FRAME,
+            )
+        self.assertEqual((lr, fb, ud, yv), (0, 0, 0, 0), "Sustained loss should stop descent")
+        self.assertEqual(self.autopilot.phase, PHASE_DESCENT)
+
+        print("SUCCESS: Downward target-loss stop passed!")
 
 if __name__ == "__main__":
     unittest.main()

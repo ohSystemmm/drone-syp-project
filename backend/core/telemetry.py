@@ -33,6 +33,9 @@ class TelemetryService:
         # Flight statistics
         self.flight_duration_s = 0.0
         self.total_distance_cm = 0.0
+        self.pos_x = 0.0
+        self.pos_y = 0.0
+        self.flight_path = []
         self._flight_start_time = None
         self._last_odo_time = None
 
@@ -65,7 +68,10 @@ class TelemetryService:
         """Call when drone takes off to start flight timer."""
         self._flight_start_time = time.monotonic()
         self._last_odo_time = time.monotonic()
-        logger.info("[Telemetry] Flight timer started")
+        self.pos_x = 0.0
+        self.pos_y = 0.0
+        self.flight_path = [{"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}]
+        logger.info("[Telemetry] Flight timer started and positions reset")
 
     def notify_land(self):
         """Call when drone lands to stop flight timer."""
@@ -80,6 +86,9 @@ class TelemetryService:
         """Reset flight duration and distance for a new session."""
         self.flight_duration_s = 0.0
         self.total_distance_cm = 0.0
+        self.pos_x = 0.0
+        self.pos_y = 0.0
+        self.flight_path = []
         self._flight_start_time = None
         self._last_odo_time = None
 
@@ -117,6 +126,19 @@ class TelemetryService:
                 if self._last_odo_time and self._flight_start_time:
                     dt = now - self._last_odo_time
                     self.total_distance_cm += self.speed_magnitude * dt
+                    
+                    # Track relative movement (dead reckoning)
+                    self.pos_x += self.speed_x * dt
+                    self.pos_y += self.speed_y * dt
+                    
+                    self.flight_path.append({
+                        "x": round(self.pos_x, 1),
+                        "y": round(self.pos_y, 1),
+                        "z": round(self.height, 1),
+                        "yaw": round(self.yaw, 1)
+                    })
+                    if len(self.flight_path) > 2000:
+                        self.flight_path.pop(0)
                 self._last_odo_time = now
 
             except Exception:
