@@ -1,0 +1,9 @@
+flowchart LR
+    Start(["Frame from Tello"]) --> Prep["convert RGB→BGR<br/>resize to 640x640"]
+    Prep --> Norm["normalize pixels<br/>0-1 range"]
+    Norm --> Infer["YOLO inference<br/>(onnx runtime)"]
+    Infer --> Parse["parse output<br/>extract boxes"]
+    Parse --> Filter["filter by<br/>confidence > 0.5"]
+    Filter --> NMS["apply NMS<br/>remove overlap"]
+    NMS --> Store["store detections<br/>in thread-safe dict"]
+    Store --> End(["Ready for AutoPilot"])

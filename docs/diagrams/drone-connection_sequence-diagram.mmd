@@ -1,67 +1,86 @@
 sequenceDiagram
     autonumber
-    actor Client as Client (App / Autopilot / Joystick)
+    actor User
+    participant API as FastAPI
     participant DC as DroneController
-    participant Tello as DJITelloPy (Tello)
-    participant HW as Drone Hardware (Tello)
+    participant Tello as djitellopy
+    participant Drone as Tello HW
 
-    rect rgba(100, 150, 255, 0.1)
-    Note over Client,HW: Phase 1: Verbindungsaufbau & Video
-    Client->>DC: connect(host, port)
-    DC->>Tello: connect()
-    Tello->>HW: "command" (UDP 8889)
-    HW-->>Tello: "ok"
-    Tello-->>DC: connected
+    rect rgb(100, 180, 220)
+    Note over User,Drone: Connect & Setup
+    User->>API: POST /api/connect?ip=192.168.10.1
+    API->>DC: connect(host, port)
+    DC->>Tello: Tello(host)
+    Tello->>Drone: "command" on UDP 8889
+    Drone-->>Tello: "ok"
     
-    Note over DC,Tello: Konfiguration (Resolution, FPS, Bitrate)
+    DC->>Tello: set video config
     DC->>Tello: streamon()
-    Tello->>HW: "streamon"
-    HW-->>Tello: "ok"
+    Tello->>Drone: streamon
+    Drone-->>Tello: ok
+    
     DC->>Tello: get_frame_read()
-    Tello->>HW: Öffnet UDP 11111 für Video
-    HW-->>Tello: Continuous Video Frames
-    DC->>DC: Warten auf ersten Frame
-    DC-->>Client: Connection Success (True)
+    Tello->>Drone: open UDP 11111
+    Drone-->>Tello: H.264 stream starts
+    
+    DC->>DC: wait for first frame (4s timeout)
+    DC-->>API: is_connected=True
+    API-->>User: {status: connected, battery: 85}
     end
 
-    rect rgba(150, 255, 100, 0.1)
-    Note over Client,HW: Phase 2: Watchdog (Background Thread)
-    DC->>DC: _start_watchdog()
-    loop Alle 3 Sekunden
+    rect rgb(150, 220, 150)
+    Note over DC,Drone: Background Watchdog (every 3s)
+    loop every 3 seconds
         DC->>Tello: get_battery()
-        Tello->>HW: "battery?"
-        HW-->>Tello: Wert (z.B. 85)
-        Tello-->>DC: Update _last_successful_ping
-        
-        opt Ping Timeout (> 10s)
-            DC->>DC: _emergency_auto_land()
-            DC-->>Client: Callback: on_connection_lost()
+        Tello->>Drone: battery?
+        Drone-->>Tello: XX%
+        Tello-->>DC: update ping time
+        alt timeout > 10s
+            DC->>DC: emergency_land()
+            DC-->>API: connection lost!
         end
     end
     end
 
-    rect rgba(255, 150, 100, 0.1)
-    Note over Client,HW: Phase 3: Steuerung der Drohne (Flight Control)
-    Client->>DC: takeoff()
-    Note right of DC: Führt Takeoff in<br/>Hintergrund-Thread aus
+    rect rgb(220, 180, 100)
+    Note over User,Drone: Flight Control Loop
+    User->>API: POST /api/takeoff
+    API->>DC: takeoff()
+    DC->>DC: spawn async thread
     DC->>Tello: takeoff()
-    Tello->>HW: "takeoff"
-    HW-->>Tello: "ok"
-    DC->>DC: Status Update (is_flying = True)
-
-    loop RC Control Loop (Joystick / Autopilot)
-        Client->>DC: send_rc_control(lr, fb, ud, yv)
-        Note right of DC: Throttling Check<br/>(Max 20Hz / alle 50ms)
-        opt Rate limit passed
-            DC->>Tello: send_rc_control(lr, fb, ud, yv)
-            Tello->>HW: "rc lr fb ud yv"
+    Tello->>Drone: takeoff
+    Drone-->>Tello: ok
+    Tello-->>DC: is_flying=True
+    API-->>User: {status: flying}
+    
+    loop autopilot or joystick RC
+        User->>API: POST /api/rc?lr=0&fb=50&ud=0&yv=0
+        API->>DC: send_rc_control(...)
+        alt within rate limit (50ms)
+            DC->>Tello: rc lr fb ud yv
+            Tello->>Drone: rc command
         end
+        Drone-->>Tello: sensor update
+        Tello-->>DC: height/speed data
+        DC-->>API: telem
+        API-->>User: {battery: 80, height: 50cm}
     end
 
-    Client->>DC: land()
-    Note right of DC: Führt Land in<br/>Hintergrund-Thread aus
+    User->>API: POST /api/land
+    API->>DC: land()
     DC->>Tello: land()
-    Tello->>HW: "land"
-    HW-->>Tello: "ok"
-    DC->>DC: Status Update (is_flying = False)
+    Tello->>Drone: land
+    Drone-->>Tello: ok (descending...)
+    Tello-->>DC: is_flying=False
+    API-->>User: {status: landed}
     end
+
+    rect rgb(200, 150, 220)
+    Note over User,Drone: Disconnect
+    User->>API: POST /api/disconnect
+    API->>DC: disconnect()
+    DC->>Tello: streamoff, close
+    Tello->>Drone: (close sockets)
+    API-->>User: {status: disconnected}
+    end
+

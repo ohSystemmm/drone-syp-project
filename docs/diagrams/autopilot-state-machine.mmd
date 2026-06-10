@@ -1,0 +1,32 @@
+flowchart TD
+    Start(["Autopilot Start"]) --> FetchData["Read latest_pose<br/>from VisionWorker"]
+    
+    %% Core Validation Block
+    FetchData --> Check{Is Pose Valid?}
+    
+    Check -->|No / Low Conf| Search["SEARCH Phase<br/>Yaw ±15°/s to find ring"]
+    Search --> FetchData %% Cycle back to read fresh frames
+    
+    Check -->|Yes| Align{Is Ring Centered?<br/>X & Y error < threshold}
+    
+    %% Alignment Loop
+    Align -->|No| AlignPhase["ALIGN Phase<br/>Adjust roll/pitch/yaw<br/>Hold Z = 160cm"]
+    AlignPhase --> FetchData %% Cycle back to check new position
+    
+    %% Approach Loop
+    Align -->|Yes| App{Is Distance Close?<br/>Z < 80cm}
+    App -->|No| AppPhase["APPROACH Phase<br/>Pitch forward<br/>Maintain X/Y alignment"]
+    AppPhase --> FetchData %% Cycle back to verify tracking while moving
+    
+    %% Terminal Punch Phase
+    App -->|Yes| Punch["PUNCH Phase<br/>Commit maximum forward speed<br/>Blind forward thrust (2.5s)"]
+    Punch --> Done["DONE Phase<br/>Kill/idle motors safely"]
+    Done --> End(["Flight Complete"])
+
+    %% Style Tweaks
+    style Start fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style End fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Punch fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style Check fill:#e1f5ff,stroke:#0277bd,stroke-width:2px
+    style Align fill:#e1f5ff,stroke:#0277bd,stroke-width:2px
+    style App fill:#e1f5ff,stroke:#0277bd,stroke-width:2px

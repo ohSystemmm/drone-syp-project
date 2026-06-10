@@ -1,50 +1,60 @@
 graph TB
-    %% Theme and Styling Configuration
-    classDef device fill:#fff,stroke:#333,stroke-width:2px;
-    classDef env fill:#fafafa,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5;
-    classDef component fill:#f1f1f1,stroke:#333,stroke-width:1px;
+    %% Deployment - what runs where
 
-    title[Deployment Architecture]
-    style title fill:none,stroke:none,font-weight:bold,font-size:18px;
+    title["Deployment Architecture"]
+    style title fill:none,stroke:none
 
-    %% --- Ground Control Station Device ---
-    subgraph GCS ["Ground Control Station (PC / Laptop / Mobile) «Device»"]
+    subgraph GCS ["Ground Control Station (PC/Laptop)"]
         
-        subgraph PythonEnv ["Python 3 Runtime «Execution Environment»"]
+        subgraph PythonRT ["Python Runtime"]
             
-            subgraph Frontend ["Frontend Subsystem"]
-                KivyApp["Kivy App (GUI & HUD) «Artifact»"]
+            subgraph Backend_["Backend Services"]
+                DC["DroneController"]
+                WS["WebServer<br/>(FastAPI)"]
+                AP["AutoPilot"]
+                FR["FlightRecorder"]
+                Tel["Telemetry"]
             end
-            class Frontend component;
-            
-            subgraph Core ["Core & Control"]
-                DroneCtrl["Drone Controller «Artifact»"]
-                AutoPilot["AutoPilot (PID/Orbit) «Artifact»"]
+
+            subgraph Vision_["Vision"]
+                VW["VisionWorker"]
+                YD["YOLO Detector"]
+                PE["PositionEstimator"]
             end
-            class Core component;
-            
-            subgraph Vision ["Vision & AI Pipeline"]
-                VisionWorker["Vision Worker Thread «Artifact»"]
-                YOLO["YOLO Object Detector «Artifact»"]
-                Pose["Pose Estimator «Artifact»"]
-            end
-            class Vision component;
 
         end
-        class PythonEnv env;
 
-    end
-    class GCS device;
-
-    %% --- Drone Device ---
-    subgraph Drone ["DJI Tello TT «Device»"]
-        subgraph Firmware ["Drone Firmware"]
-            FC["Flight Controller (UDP Server) «Artifact»"]
-            Cam["Camera / Video Encoder «Artifact»"]
+        subgraph BrowserRT ["Browser Runtime"]
+            UI["React UI<br/>(Vite build)"]
         end
-        class Firmware component;
-    end
-    class Drone device;
 
-    %% --- Relationships ---
-    Core --> |"[Control Commands]"| Drone
+    end
+
+    subgraph Drone["DJI Tello TT"]
+        FC["Flight Controller"]
+        Cam["Camera"]
+    end
+
+    subgraph Storage_["Storage (optional)"]
+        ModelRegistry["Model Registry<br/>(Roboflow, S3, etc)"]
+    end
+
+    %% connections
+    UI -->|HTTP POST| WS
+    WS -->|commands| DC
+    DC -->|UDP 8889| FC
+    
+    Cam -->|UDP 11111<br/>H.264| DC
+    DC -->|frames| VW
+    VW -->|YOLO| YD
+    VW -->|pose| PE
+    
+    DC -->|mjpeg| WS
+    WS -->|video endpoint| UI
+    
+    AP -->|RC values| DC
+    FR -->|logging| DC
+    Tel -->|poll| DC
+    Tel -->|display| UI
+    
+    YD -->|load model| ModelRegistry

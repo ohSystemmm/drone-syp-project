@@ -1,0 +1,55 @@
+graph TB
+    subgraph PC["Laptop/PC (Ground Station)"]
+        subgraph Python["Python Runtime<br/>(single process)"]
+            DC_dep["DroneController"]
+            AP_dep["AutoPilot"]
+            Vision_dep["VisionWorker<br/>(thread 1)"]
+            API_dep["FastAPI<br/>(thread 2)"]
+            Tel_dep["Telemetry<br/>(thread 3)"]
+        end
+        subgraph Browser["Web Browser<br/>(separate process)"]
+            React_dep["React SPA<br/>(Vite build)"]
+        end
+        subgraph Storage_dep["Local Disk"]
+            Logs_dep["flight logs<br/>.json files"]
+            Models_dep["models<br/>.onnx/.pt"]
+        end
+    end
+    
+    subgraph WiFi["Wi-Fi Network<br/>192.168.4.x"]
+        UDP1["UDP 8889<br/>Control"]
+        UDP2["UDP 11111<br/>Video H.264"]
+    end
+    
+    subgraph Drone_HW["DJI Tello TT"]
+        FC_dep["Flight Controller<br/>(SDK mode)"]
+        Cam_dep["Camera<br/>(H.264 encoder)"]
+        Sensors_dep["IMU, ToF, Baro"]
+    end
+    
+    %% connections
+    DC_dep -->|listen| UDP1
+    DC_dep -->|listen| UDP2
+    UDP1 -->|send commands| FC_dep
+    UDP2 -->|recv stream| DC_dep
+    Cam_dep -->|encode| UDP2
+    Sensors_dep -->|poll| FC_dep
+    FC_dep -->|telem response| UDP1
+    
+    Vision_dep -->|read frames| DC_dep
+    AP_dep -->|read pose| Vision_dep
+    AP_dep -->|RC values| DC_dep
+    Tel_dep -->|query| DC_dep
+    
+    API_dep -->|HTTP| React_dep
+    React_dep -->|POST| API_dep
+    API_dep -->|call| DC_dep
+    
+    DC_dep -->|save| Logs_dep
+    Vision_dep -->|load| Models_dep
+    
+    classDef hw fill:#fff,stroke:#333,stroke-width:2px
+    classDef sw fill:#f0f0f0,stroke:#666,stroke-width:1px
+    classDef net fill:#e3f2fd,stroke:#1976d2
+    class Drone_HW hw
+    class WiFi net
