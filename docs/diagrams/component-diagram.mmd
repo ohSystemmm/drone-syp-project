@@ -1,82 +1,70 @@
-graph TD
-    %% Theme and Styling Configuration
-    %% (Emulating the plain, clean, shadowless look of the original)
-    classDef default fill:#fff,stroke:#333,stroke-width:1px;
-    classDef package fill:#f9f9f9,stroke:#666,stroke-width:1px,stroke-dasharray: 5 5;
+graph TB
+    %% component architecture - what runs on the GCS
+
+    title["Drone Control System Components"]
+    style title fill:none,stroke:none
+
+    subgraph GCS ["Ground Control Station"]
+        
+        subgraph Backend["Backend (Python)"]
+            
+            subgraph Core["Core / Control"]
+                DC["DroneController<br/>- djitellopy wrapper<br/>- handles UDP 8889/11111<br/>- frame reader thread"]
+                AP["AutoPilot<br/>- PID loops for XY centering<br/>- Z distance control<br/>- state machine"]
+                FR["FlightRecorder<br/>- logs RC commands to JSON<br/>- timing + intensity"]
+                Tel["Telemetry<br/>- polls battery/height<br/>- background task"]
+            end
+
+            subgraph Vision["Vision Pipeline"]
+                VW["VisionWorker<br/>- reads frames<br/>- spawns YOLO + pose"]
+                YD["YOLO Detector<br/>- onnx/pt model<br/>- 0.5 conf threshold"]
+                PE["PositionEstimator<br/>- Kalman filter<br/>- X/Y/Z from ArUco mask"]
+                AC["ArUco Markers<br/>- marker detection<br/>- calibration fusion"]
+            end
+
+            subgraph Web["Web API"]
+                WS["FastAPI<br/>- /api/connect<br/>- /api/takeoff<br/>- /api/rc<br/>- /api/video"]
+            end
+
+        end
+
+        subgraph Frontend["Web Frontend"]
+            UI["React SPA<br/>- video canvas<br/>- joystick controls<br/>- metric display"]
+        end
+
+    end
+
+    subgraph Drone ["DJI Tello"]
+        FC["Flight Controller<br/>(UDP 8889)"]
+        Cam["Camera<br/>(H.264, UDP 11111)"]
+    end
+
+    subgraph Files["Disk"]
+        Logs["flight_rec_*.json"]
+        Models["targetModel.onnx"]
+        Cfg["keybindings.json"]
+    end
+
+    %% flow
+    DC -->|frames| VW
+    VW -->|inference| YD
+    VW -->|estimate ROI| PE
+    PE -->|marker data| AC
     
-    title[DJI Tello TT Autonomous Flight System Kivy Architecture]
-    style title fill:none,stroke:none,font-weight:bold,font-size:18px;
-
-    %% --- Hardware ---
-    subgraph Hardware ["Hardware"]
-        Tello["DJI Tello TT Drone"]
-        JoystickHardware["Gamepad / Joystick"]
-    end
-
-    %% --- Frontend ---
-    subgraph Frontend ["Frontend (Kivy GUI & OpenGL)"]
-        KivyApp["Kivy App / Clock Scheduler"]
-        HUD["Video HUD Widget<br/>(Kivy Texture)"]
-        ControlCenterUI["Control Center UI<br/>(Kivy Layouts)"]
-        Room3DWidget["3D Room Widget<br/>(Kivy Canvas / GPU)"]
-    end
-    class Frontend package;
-
-    %% --- Input Handling ---
-    subgraph InputHandling ["Input Handling (Headless)"]
-        HeadlessPygame["Headless Pygame<br/>(Event Pump)"]
-        Joystick["Joystick Handler"]
-    end
-    class InputHandling package;
-
-    %% --- Core Integration ---
-    subgraph CoreIntegration ["Core Integration"]
-        DroneCtrl["Drone Controller"]
-        AutoPilot["AutoPilot (PID & Orbit)"]
-        Calibration["Calibration Engine"]
-    end
-    class CoreIntegration package;
-
-    %% --- Vision & AI Pipeline ---
-    subgraph VisionPipeline ["Vision & AI Pipeline (Async Thread)"]
-        VisionWorker["Vision Worker Thread"]
-        YOLODetector["YOLO Object Detector"]
-        PoseEstimator["Position Estimator<br/>(Edge Math + Kalman)"]
-        Aruco["ArUco Calibrator<br/>(Oracle Fusion)"]
-    end
-    class VisionPipeline package;
-
-    %% --- Active Learning & Data ---
-    subgraph ActiveLearning ["Active Learning & Data"]
-        Sampler["Hybrid Sampler"]
-        DataFactory["Data Factory<br/>(RL Jittering)"]
-    end
-    class ActiveLearning package;
-
-    %% --- Relationships & Data Flow ---
-
-    %% Hardware Connections
-    DroneCtrl <.-> |"UDP <br/>(Cmd: 8889, Vid: 11111)"| Tello
-    JoystickHardware --> |"USB / Bluetooth"| HeadlessPygame
-
-    %% Input Flow
-    HeadlessPygame --> |"Parses Axis/Buttons"| Joystick
-    KivyApp --> |"Polls @ 60Hz via Clock"| Joystick
-
-    %% Kivy UI Flow
-    KivyApp --> |"Manages Overlays"| ControlCenterUI
-    KivyApp --> |"Updates Texture (30Hz)"| HUD
-    KivyApp --> |"Feeds 3D Pose"| Room3DWidget
-    KivyApp <--> |"Takeoff, Land, RC Commands"| DroneCtrl
-
-    %% Vision Pipeline Flow
-    DroneCtrl --> |"Raw Video Stream"| VisionWorker
-    VisionWorker --> |"Inference"| YOLODetector
-    VisionWorker --> |"Detect Markers"| Aruco
-    VisionWorker --> |"Extract 3D Pose"| PoseEstimator
-
-    %% Video & Data Handoff
-    YOLODetector --> |"Returns BBoxes"| VisionWorker
-    VisionWorker -.-> |"Thread-Safe Frame Transfer<br/>(Pre-drawn BBoxes)"| HUD
-    PoseEstimator -.-> |"Thread-Safe Pose Transfer"| Room3DWidget
-    PoseEstimator -.-> |"Navigation Data"| AutoPilot
+    AP -->|computed RC| DC
+    DC -->|UDP commands| FC
+    FC -->|height/batt| DC
+    
+    Cam -->|UDP stream| DC
+    DC -->|decoded| VW
+    DC -->|mjpeg| WS
+    WS -->|video endpoint| UI
+    
+    UI -->|POST /api/rc| WS
+    WS -->|rc values| DC
+    
+    FR -->|write| Logs
+    YD -->|load| Models
+    UI -->|read| Cfg
+    Tel -->|poll| DC
+    Tel -->|metrics| UI

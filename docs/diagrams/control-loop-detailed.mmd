@@ -1,0 +1,37 @@
+flowchart TD
+    Start(["System Running"]) --> GetFrame["VisionWorker<br/>get_frame()"]
+    GetFrame --> Decode["decode H.264<br/>from UDP 11111"]
+    Decode --> YOLO["YOLO inference<br/>detect objects"]
+    YOLO --> Pose["PositionEstimator<br/>Kalman filter"]
+    Pose --> Detections["store detections:<br/>boxes, conf, pose"]
+    
+    Detections --> AP["AutoPilot<br/>read latest_pose"]
+    
+    AP --> APDecide{"which phase?"}
+    
+    APDecide -->|searching| Search["SEARCH<br/>yaw rotation"]
+    Search --> APCalc["compute desired<br/>lr, fb, ud, yv"]
+    
+    APDecide -->|aligning| Align["ALIGN<br/>center & distance"]
+    Align --> APCalc
+    
+    APDecide -->|approaching| Approach["APPROACH<br/>close distance"]
+    Approach --> APCalc
+    
+    APDecide -->|punching| Punch["PUNCH<br/>max speed"]
+    Punch --> APCalc
+    
+    APDecide -->|done| Done["DONE<br/>idle"]
+    Done --> APCalc
+    
+    APCalc --> PID["PID controllers<br/>process errors"]
+    PID --> Limits["clamp output<br/>±100 range"]
+    Limits --> RC["send_rc_control<br/>UDP 8889"]
+    
+    RC --> Telem["read telemetry<br/>battery, height"]
+    Telem --> Update["update UI<br/>live metrics"]
+    
+    Update --> Check{"landing?"}
+    Check -->|no| GetFrame
+    Check -->|yes| Land["land()<br/>descend"]
+    Land --> End(["Flight End"])

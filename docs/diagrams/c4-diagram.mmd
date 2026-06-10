@@ -1,0 +1,76 @@
+graph TB
+    subgraph Context["System Context"]
+        Operator["Pilot / Operator"]
+        DataScientist["Engineer / ML Team"]
+        Drone["DJI Tello TT Drone"]
+        ExtSys["External Model Storage<br/>(Roboflow, S3, etc.)"]
+    end
+
+    subgraph Platform["GOOSE Platform (Main Components)"]
+        subgraph Frontend["Frontend UI"]
+            UI["Web UI<br/>(React SPA, Feed & Controls)"]
+        end
+
+        subgraph Backend["Backend (Python)"]
+            API["WebServer<br/>(FastAPI Endpoints)"]
+            DC["DroneController<br/>(djitellopy wrapper)"]
+            Vision["VisionWorker<br/>(Frame Processing Thread)"]
+            AP["AutoPilot<br/>(State Machine: ALIGN/APPROACH)"]
+            Rec["FlightRecorder<br/>(Saves RC History)"]
+            Telem["Telemetry Unit<br/>(Battery, Height, Pose)"]
+        end
+
+        subgraph Vision_["Vision Processing Pipeline"]
+            Det["YOLO Detector<br/>(Trained on Rings)"]
+            Pose["PositionEstimator<br/>(Kalman Smoothing)"]
+            Calib["ArUco Markers<br/>(Calibration)"]
+        end
+
+        subgraph Storage["Local Files"]
+            Recs["flight_rec_*.json"]
+            Models["targetModel.onnx / .pt"]
+            Conf["config.json<br/>(Joystick Mappings)"]
+        end
+    end
+
+    %% Context Interactions
+    Operator -->|uses| UI
+    DataScientist -->|uploads models to| ExtSys
+    DC -->|UDP commands & video| Drone
+    Drone -->|telemetry & frames| DC
+    Rec -->|ships logs to| ExtSys
+
+    %% Internal Component Connections
+    API -->|controls| DC
+    UI -->|fetches /api/video & POSTs| API
+    Telem -->|polls data| DC
+    Telem -->|pushes states| UI
+    
+    DC -->|raw frames| Vision
+    Vision -->|YOLO inference| Det
+    Vision -->|estimate ROI| Pose
+    Pose -->|marker fusion| Calib
+    
+    Vision -->|detections| AP
+    AP -->|RC control values| DC
+    
+    Rec -->|records state| DC
+    Rec -->|saves to| Recs
+    Det -->|loads| Models
+    UI -->|loads| Conf
+
+    %% Styling & Classes
+    classDef context fill:#e1f5ff,stroke:#01579b,stroke-width:2px;
+    classDef frontend fill:#f3e5f5,stroke:#4a148c,stroke-width:1px;
+    classDef backend fill:#fff3e0,stroke:#e65100,stroke-width:1px;
+    classDef vision fill:#f1f8e9,stroke:#33691e,stroke-width:1px;
+    classDef storage fill:#fce4ec,stroke:#880e4f,stroke-width:1px;
+    classDef external fill:#eceff1,stroke:#37474f,stroke-width:2px,stroke-dasharray: 5 5;
+
+    class Operator,DataScientist context;
+    class Drone external;
+    class ExtSys external;
+    class UI frontend;
+    class DC,API,Vision,AP,Rec,Telem backend;
+    class Det,Pose,Calib vision;
+    class Recs,Models,Conf storage;

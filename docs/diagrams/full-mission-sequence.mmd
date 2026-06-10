@@ -1,0 +1,113 @@
+
+sequenceDiagram
+    autonumber
+    actor Pilot
+    participant UI as React UI
+    participant API as FastAPI
+    participant DC as DroneController
+    participant Vision as VisionWorker
+    participant AP as AutoPilot
+    participant Drone as Tello HW
+
+    rect rgb(100, 150, 220)
+    Note over Pilot,Drone: Mission Vorbereitung & Connection
+    Pilot->>UI: öffne App
+    UI->>API: GET /api/status
+    API-->>UI: {connected: false}
+    
+    Pilot->>UI: eingabe IP 192.168.10.1
+    UI->>API: POST /api/connect
+    API->>DC: connect(host)
+    DC->>Drone: "command" handshake
+    Drone-->>DC: "ok"
+    
+    DC->>DC: configure video
+    DC->>Drone: streamon
+    DC->>Drone: set fps=30
+    
+    DC->>Vision: start worker thread
+    Vision->>Vision: wait for frames
+    
+    DC-->>API: is_connected=True
+    API-->>UI: {status: ready, battery: 90}
+    Pilot->>Pilot: prüfe sichtlinie zum ring
+    end
+
+    rect rgb(150, 200, 150)
+    Note over Pilot,Drone: Automatischer Flug startet
+    Pilot->>UI: click START MISSION
+    UI->>AP: start autopilot
+    API->>DC: POST /api/takeoff
+    DC->>Drone: takeoff
+    Drone-->>DC: {is_flying: True}
+    AP->>AP: init state=SEARCH
+    end
+
+    rect rgb(200, 150, 100)
+    Note over Vision,AP: Vision & Control Loop (parallel)
+    par Vision
+        loop 30fps
+            Vision->>Drone: (liest frames via UDP 11111)
+            Drone-->>Vision: H.264 stream
+            Vision->>Vision: decode, YOLO, pose estimation
+            Vision->>Vision: store in pose_dict
+        end
+    and AutoPilot
+        loop ~20Hz RC update
+            AP->>Vision: read latest_pose
+            AP->>AP: compute PID errors
+            alt state=SEARCH
+                AP->>AP: rotate yaw ±15°/s
+            else state=ALIGN
+                AP->>AP: PID(error_x, error_y)
+                AP->>AP: hold z_target=160cm
+                AP->>AP: check centered?
+                AP->>AP: if centered: goto APPROACH
+            else state=APPROACH
+                AP->>AP: PID(error_z)
+                AP->>AP: move forward if z>80cm
+                AP->>AP: check z<80cm?
+                AP->>AP: if yes: goto PUNCH
+            else state=PUNCH
+                AP->>AP: set fb=100 (full speed)
+                AP->>AP: wait 2.5s
+                AP->>AP: goto DONE
+            end
+            
+            AP->>DC: send_rc(lr, fb, ud, yv)
+            DC->>Drone: UDP 8889 rc command
+            Drone-->>DC: sensor update
+            DC->>DC: update telemetry
+            
+            DC->>UI: push /api/metrics
+            UI->>UI: update video, battery, height
+        end
+    end
+    end
+
+    rect rgb(220, 150, 150)
+    Note over Pilot,Drone: Post-Mission & Landing
+    Note over AP: AutoPilot detects punch complete
+    AP->>AP: state=DONE
+    AP->>DC: send_rc(0,0,0,0) idle
+    
+    alt pilot clicks LAND
+        Pilot->>UI: click LAND
+        UI->>API: POST /api/land
+    else autopilot timeout
+        AP->>AP: mission_time > 60s
+        AP->>DC: land()
+    end
+    
+    DC->>Drone: land command
+    Drone->>Drone: descend to ground
+    Drone-->>DC: {is_flying: False}
+    DC->>DC: stop watchdog
+    DC->>Vision: stop worker
+    
+    DC-->>API: {status: landed}
+    API-->>UI: {duration: 45.3s, success: true}
+    Pilot->>UI: review flight log
+    end
+
+

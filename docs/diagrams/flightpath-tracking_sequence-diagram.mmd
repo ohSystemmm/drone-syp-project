@@ -1,24 +1,61 @@
 sequenceDiagram
     autonumber
-    participant UI
-    participant Backend
-    participant Drone
+    participant UI as Web UI
+    participant AP as AutoPilot
+    participant Vision as VisionWorker
+    participant Detect as YOLO/Pose
+    participant DC as DroneController
+    participant Drone as Tello
 
-    Note over UI, Drone: Initiation
-    UI->>Backend: trigger_record()
-    Backend->>Drone: cmd_start_logging()
-    Drone-->>Backend: ack_started
+    rect rgb(100, 150, 220)
+    Note over UI,Drone: Start Flight
+    UI->>DC: POST /api/takeoff
+    DC->>Drone: takeoff()
+    Drone-->>DC: ok
+    DC-->>UI: flying
+    end
 
-    Note over Drone: Flight Operations
-    Drone->>Drone: Log GPS/Telemetry to Buffer
+    rect rgb(150, 220, 150)
+    Note over Vision,Detect: Vision Loop (~30fps)
+    loop each frame
+        DC->>Vision: get_frame()
+        Vision->>Detect: YOLO detect
+        Detect-->>Vision: [bboxes]
+        Vision->>Detect: estimate pose from ROI
+        Detect-->>Vision: {x, y, z, conf}
+        Vision->>Vision: store latest pose
+    end
+    end
 
-    Note over UI, Drone: Shutdown / Landing Sequence
-    Drone->>Drone: Land or System Shutdown
-    
+    rect rgb(200, 200, 100)
+    Note over AP,DC: AutoPilot Loop (Main thread)
+    loop ring pursuit
+        AP->>Vision: read latest_pose
+        AP->>AP: compute PID errors
+        alt ALIGN phase
+            AP->>AP: center XY, hold Z=160cm
+        else APPROACH phase
+            AP->>AP: move forward, maintain XY
+        else PUNCH phase
+            AP->>AP: max speed through ring (2.5s)
+        else DONE phase
+            AP->>AP: idle motors
+        end
+        
+        AP->>DC: send_rc(lr, fb, ud, yv)
+        DC->>Drone: rc command
+        Drone-->>DC: telem update
+        DC-->>UI: {height, battery, detections}
+    end
+    end
 
-    Note right of Drone: Data Transfer Phase
-    Drone->>Backend: stream_flight_data()
-    Backend->>Backend: write_to_local_storage(file_path)
+    rect rgb(220, 150, 150)
+    Note over UI,Drone: Landing
+    UI->>AP: flight complete
+    AP->>DC: send_rc(0,0,0,0)
+    AP->>DC: land()
+    DC->>Drone: land
+    Drone-->>DC: landed
+    DC-->>UI: {duration: 45.3s, success: true}
+    end
 
-
-    Backend-->>UI: notify_save_complete()

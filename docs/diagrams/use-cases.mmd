@@ -1,0 +1,61 @@
+graph TB
+    subgraph Actors["Aktoren"]
+        Pilot["Pilot"]
+        Engineer["Engineer/<br/>ML Team"]
+        Drone["DJI Tello TT"]
+    end
+    
+    subgraph System["GOOSE System"]
+        UseCase1["Connect to Drone<br/>manual IP input"]
+        UseCase2["Manual Flight Control<br/>joystick/keyboard"]
+        UseCase3["Autonomous Ring Flight<br/>visual tracking"]
+        UseCase4["Monitor Live Video<br/>feed + metrics"]
+        UseCase5["Record Flight<br/>save commands"]
+        UseCase6["Replay Flight<br/>load & execute"]
+        UseCase7["View Flight Logs<br/>telemetry history"]
+        UseCase8["Update Models<br/>upload .onnx file"]
+        UseCase9["Calibrate System<br/>ArUco markers"]
+    end
+    
+    subgraph System2["Drone Hardware"]
+        UseCase10["Execute Commands<br/>RC control"]
+        UseCase11["Stream Video<br/>H.264 UDP"]
+        UseCase12["Report Telemetry<br/>battery, height"]
+    end
+    
+    %% Pilot interactions
+    Pilot -->|initiates| UseCase1
+    Pilot -->|controls| UseCase2
+    Pilot -->|triggers| UseCase3
+    Pilot -->|views| UseCase4
+    Pilot -->|initiates| UseCase5
+    Pilot -->|triggers| UseCase6
+    Pilot -->|reviews| UseCase7
+    
+    %% Engineer interactions
+    Engineer -->|uploads| UseCase8
+    Engineer -->|configures| UseCase9
+    
+    %% System interactions with drone
+    UseCase2 -->|sends| UseCase10
+    UseCase3 -->|sends| UseCase10
+    UseCase5 -->|logs| UseCase10
+    UseCase6 -->|replays| UseCase10
+    
+    UseCase11 -->|consumed by| UseCase3
+    UseCase11 -->|consumed by| UseCase4
+    
+    UseCase12 -->|consumed by| UseCase4
+    UseCase12 -->|consumed by| UseCase7
+    
+    %% system dependencies
+    UseCase9 -.->|enables| UseCase3
+    UseCase8 -.->|improves| UseCase3
+    
+    %% styling
+    classDef actor fill:#fff,stroke:#333,stroke-width:2px
+    classDef usecase fill:#f0f0f0,stroke:#666
+    classDef hardware fill:#e3f2fd,stroke:#1976d2
+    
+    class Pilot,Engineer,Drone actor
+    class UseCase10,UseCase11,UseCase12 hardware
