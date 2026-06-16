@@ -5,6 +5,7 @@ import logging
 import cv2
 import threading
 import json
+import math
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +31,81 @@ telemetry = TelemetryService()
 registry = DroneRegistry()
 recorder = FlightRecorder()
 autopilot = AutoPilot()
+
+# Replay state
+replay_thread = None
+is_replay_running = False
+
+# Manual RC safety timeout tracking
+last_rc_received_time = time.time()
+
+# Flight Settings state
+flight_settings = {
+    "max_altitude_m": 15.0,
+    "max_distance_m": 60.0,
+    "sensitivity": 75.0,
+    "manual_speed": 60.0,
+    "control_mode": 2,
+}
+
+def stop_replay_session(reason="stop", send_stop=True, join=True):
+    global is_replay_running, replay_thread
+    logger.info(f"Stopping replay session: reason={reason}")
+    is_replay_running = False
+    recorder.stop_replay()
+    
+    if join and replay_thread is not None:
+        try:
+            replay_thread.join(timeout=1.0)
+        except Exception:
+            pass
+        replay_thread = None
+        
+    if send_stop and controller.is_connected:
+        controller.send_stop()
+
+def on_drone_connection_lost():
+    global connected_ip, is_video_recording
+    logger.warning("Watchdog connection loss callback triggered!")
+    
+    # Disable autopilot, replay, recording, telemetry
+    stop_replay_session("connection_lost", send_stop=False, join=False)
+    if autopilot.active:
+        autopilot.disengage()
+    if recorder.is_recording:
+        recorder.stop_recording()
+    if is_video_recording:
+        is_video_recording = False
+    telemetry.stop()
+    connected_ip = None
+
+controller.on_connection_lost = on_drone_connection_lost
+
+def apply_control_settings(lr, fb, ud, yv):
+    # 1. Apply sensitivity scaling
+    sens = flight_settings.get("sensitivity", 75.0)
+    scale = max(0.1, min(1.0, sens / 100.0))
+    
+    lr = int(lr * scale)
+    fb = int(fb * scale)
+    ud = int(ud * scale)
+    yv = int(yv * scale)
+    
+    # 2. Apply altitude limit (prevent upward movement if alt limit reached/exceeded)
+    max_alt_cm = flight_settings.get("max_altitude_m", 15.0) * 100.0
+    if telemetry.height >= max_alt_cm and ud > 0:
+        ud = 0
+        
+    # 3. Apply distance limit (prevent movement further away from starting position)
+    max_dist_cm = flight_settings.get("max_distance_m", 60.0) * 100.0
+    current_dist_cm = math.sqrt(telemetry.pos_x**2 + telemetry.pos_y**2)
+    if current_dist_cm >= max_dist_cm:
+        if telemetry.pos_x * fb > 0:
+            fb = 0
+        if telemetry.pos_y * lr > 0:
+            lr = 0
+            
+    return lr, fb, ud, yv
 
 connected_ip = None
 yolo_enabled = False
@@ -90,8 +166,7 @@ def video_recorder_loop(output_path, fps=30.0):
                     if yolo_enabled:
                         with detections_lock:
                             active_detections = list(latest_detections)
-                        if active_detections:
-                            from ui.utils import draw_detections
+                            from vision.draw import draw_detections
                             frame_bgr = draw_detections(frame_bgr, active_detections)
                                 
                     with video_writer_lock:
@@ -218,7 +293,7 @@ def yolo_worker_loop():
         time.sleep(sleep_time)
 
 def autopilot_worker_loop():
-    global is_autopilot_running, autopilot, latest_detections, camera_direction
+    global is_autopilot_running, autopilot, latest_detections, camera_direction, last_rc_received_time, is_replay_running
     logger.info("Autopilot worker thread started")
     
     while is_autopilot_running:
@@ -239,10 +314,20 @@ def autopilot_worker_loop():
                 frame_area = 320.0 * 240.0 if camera_direction == 1 else 960.0 * 720.0
                 bbox_ratio = float(w * h) / frame_area
                 
-            lr, fb, ud, yv = autopilot.compute(pose=None, bbox_center=bbox_center, bbox_ratio=bbox_ratio)
+            frame_sz = (320, 240) if camera_direction == 1 else (960, 720)
+            lr, fb, ud, yv = autopilot.compute(pose=None, bbox_center=bbox_center, bbox_ratio=bbox_ratio, frame_size=frame_sz)
             
             if autopilot.active:
+                if recorder.is_recording:
+                    recorder.record_rc(lr, fb, ud, yv)
                 controller.send_rc_control(lr, fb, ud, yv)
+        else:
+            # Check for manual RC drift safety timeout
+            now = time.time()
+            if controller.is_connected and not is_replay_running:
+                if now - last_rc_received_time > 0.25 and controller._last_rc_values != (0, 0, 0, 0):
+                    logger.warning("[Server] Manual RC timeout detected (>250ms). Stopping drone drift.")
+                    controller.send_stop()
         
         elapsed = time.time() - loop_start
         sleep_time = max(0.01, 0.05 - elapsed)
@@ -250,34 +335,39 @@ def autopilot_worker_loop():
 
 # Video streaming helper
 def get_video_frame():
-    """Generates JPEG frame stream from Tello video feed."""
+    """Generates MJPEG frames from the Tello video feed, emitting only new frames."""
     global yolo_enabled
     logger.info("Starting MJPEG video frame generator loop")
+    last_frame_id = None  # Track Python object id() to detect new frames
     while True:
         if controller.is_connected and controller.frame_reader:
             try:
                 frame = controller.frame_reader.frame
-                if frame is not None and frame.size > 0:
+                # Only encode & yield when djitellopy has decoded a genuinely new frame
+                # (it replaces the .frame attribute with a new ndarray each time)
+                if frame is not None and frame.size > 0 and id(frame) != last_frame_id:
+                    last_frame_id = id(frame)
                     # Tello frames from djitellopy are in RGB, convert to BGR for OpenCV
                     frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                    
+
                     if yolo_enabled:
                         with detections_lock:
                             active_detections = list(latest_detections)
-                        if active_detections:
-                            from ui.utils import draw_detections
+                            from vision.draw import draw_detections
                             frame_bgr = draw_detections(frame_bgr, active_detections)
-                                
-                    ret, jpeg = cv2.imencode('.jpg', frame_bgr)
+
+                    ret, jpeg = cv2.imencode('.jpg', frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     if ret:
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+                    time.sleep(0.005)  # New frame sent — poll quickly for the next one
+                    continue
             except Exception as e:
                 logger.error(f"Error reading/encoding frame: {e}")
         else:
-            # When disconnected, stream a mock static test pattern frame or transparent screen
+            # Disconnected — show offline screen
+            last_frame_id = None  # Reset so first real frame is always sent
             try:
-                # Black screen with centered logo
                 img = cv2.imread(os.path.join(os.path.dirname(__file__), "assets", "logo.png"))
                 if img is None:
                     import numpy as np
@@ -289,7 +379,8 @@ def get_video_frame():
                            b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
             except Exception:
                 pass
-        time.sleep(0.04) # ~25 FPS
+        time.sleep(0.033)  # ~30 FPS poll rate when idle / waiting for new frame
+
 
 # Models
 class ConnectionRequest(BaseModel):
@@ -310,11 +401,21 @@ class LEDTextRequest(BaseModel):
     direction: str = "l"
     speed: float = 1.0
 
+class FlightSettingsRequest(BaseModel):
+    max_altitude_m: float
+    max_distance_m: float
+    sensitivity: float
+    manual_speed: float
+    control_mode: int
+
 @app.post("/api/connect")
 def connect_drone(req: ConnectionRequest):
     global connected_ip
+    if controller.connection_state == "connecting":
+        raise HTTPException(status_code=409, detail="A connection attempt is already in progress. Please wait.")
     try:
         if controller.is_connected:
+            stop_replay_session("reconnect", send_stop=False, join=True)
             controller.disconnect()
             telemetry.stop()
             connected_ip = None
@@ -337,6 +438,7 @@ def connect_drone(req: ConnectionRequest):
 def disconnect_drone():
     global connected_ip
     try:
+        stop_replay_session("disconnect", send_stop=False, join=True)
         controller.disconnect()
         telemetry.stop()
         connected_ip = None
@@ -410,11 +512,26 @@ def set_camera(req: CameraRequest):
 
 @app.post("/api/rc")
 def rc_control(req: RCRequest):
+    global last_rc_received_time
+    last_rc_received_time = time.time()
     if not controller.is_connected or not controller.tello:
         return {"status": "error", "message": "Drone not connected"}
+        
+    # Check if any manual command is non-zero
+    is_manual_active = (req.lr != 0 or req.fb != 0 or req.ud != 0 or req.yv != 0)
+    if is_manual_active and autopilot.active:
+        logger.info("[Server] Manual override detected, disengaging autopilot")
+        autopilot.disengage()
+        
     try:
-        # Throttle/send commands directly
-        controller.send_rc_control(req.lr, req.fb, req.ud, req.yv)
+        # Apply flight settings (sensitivity and geofences)
+        lr, fb, ud, yv = apply_control_settings(req.lr, req.fb, req.ud, req.yv)
+        
+        # If recording is active, record the commands
+        if recorder.is_recording:
+            recorder.record_rc(lr, fb, ud, yv)
+            
+        controller.send_rc_control(lr, fb, ud, yv)
         return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -466,6 +583,9 @@ def get_telemetry():
         "total_distance": telemetry.total_distance_cm if controller.is_connected else 0,
         "autopilot_active": autopilot.active,
         "autopilot_phase": autopilot.phase_display,
+        "pos_x": telemetry.pos_x if controller.is_connected else 0.0,
+        "pos_y": telemetry.pos_y if controller.is_connected else 0.0,
+        "flight_path": telemetry.flight_path if controller.is_connected else [],
     }
 
 @app.post("/api/telemetry/reset")
@@ -486,6 +606,20 @@ def set_yolo_config(req: YoloConfigRequest):
     yolo_enabled = req.enabled
     logger.info(f"YOLO vision overlay {'enabled' if yolo_enabled else 'disabled'}")
     return {"status": "success", "enabled": yolo_enabled}
+
+@app.get("/api/settings/flight")
+def get_flight_settings():
+    return flight_settings
+
+@app.post("/api/settings/flight")
+def update_flight_settings(req: FlightSettingsRequest):
+    flight_settings["max_altitude_m"] = req.max_altitude_m
+    flight_settings["max_distance_m"] = req.max_distance_m
+    flight_settings["sensitivity"] = req.sensitivity
+    flight_settings["manual_speed"] = req.manual_speed
+    flight_settings["control_mode"] = req.control_mode
+    logger.info(f"Updated flight settings: {flight_settings}")
+    return flight_settings
 
 @app.get("/api/video")
 def video_feed():
@@ -571,43 +705,141 @@ def remove_drone(req: DroneRemoveRequest):
     registry.remove(req.ip)
     return {"status": "success"}
 
+# --- Media Library ---
+
+MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flight_data")
+os.makedirs(MEDIA_DIR, exist_ok=True)
+
+@app.get("/api/media")
+def list_media():
+    """List all photos and videos in the flight_data directory."""
+    items = []
+    allowed_ext = {".jpg": "photo", ".jpeg": "photo", ".png": "photo", ".mp4": "video", ".avi": "video"}
+    try:
+        for fname in sorted(os.listdir(MEDIA_DIR), reverse=True):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in allowed_ext:
+                continue
+            fpath = os.path.join(MEDIA_DIR, fname)
+            stat = os.stat(fpath)
+            size_kb = stat.st_size / 1024
+            size_str = f"{size_kb:.0f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
+            import datetime
+            date_str = datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+            items.append({
+                "id": fname,
+                "name": fname,
+                "type": allowed_ext[ext],
+                "path": fname,  # relative filename, used for serving/deleting
+                "date": date_str,
+                "size": size_str,
+            })
+    except Exception as e:
+        logger.error(f"Error listing media: {e}")
+    return items
+
+@app.get("/api/media/file/{filepath:path}")
+def serve_media_file(filepath: str):
+    """Serve a media file from the flight_data directory."""
+    # Security: resolve and ensure path stays inside MEDIA_DIR
+    full_path = os.path.realpath(os.path.join(MEDIA_DIR, filepath))
+    if not full_path.startswith(os.path.realpath(MEDIA_DIR)):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    ext = os.path.splitext(full_path)[1].lower()
+    media_type_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                      ".mp4": "video/mp4", ".avi": "video/x-msvideo"}
+    return FileResponse(full_path, media_type=media_type_map.get(ext, "application/octet-stream"))
+
+@app.delete("/api/media/{filepath:path}")
+def delete_media_file(filepath: str):
+    """Delete a media file from the flight_data directory."""
+    full_path = os.path.realpath(os.path.join(MEDIA_DIR, filepath))
+    if not full_path.startswith(os.path.realpath(MEDIA_DIR)):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        os.remove(full_path)
+        return {"status": "deleted", "path": filepath}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
+
+@app.post("/api/snapshot")
+def take_snapshot():
+    """Capture the current video frame and save it as a JPEG photo."""
+    if not controller.is_connected or not controller.frame_reader:
+        raise HTTPException(status_code=400, detail="Drone not connected or stream not ready")
+    frame = controller.frame_reader.frame
+    if frame is None or frame.size == 0:
+        raise HTTPException(status_code=503, detail="No video frame available")
+    try:
+        import numpy as np
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        os.makedirs(MEDIA_DIR, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"photo_{timestamp}.jpg"
+        out_path = os.path.join(MEDIA_DIR, filename)
+        cv2.imwrite(out_path, frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        logger.info(f"[Snapshot] Saved to {out_path}")
+        return {"status": "ok", "filename": filename, "path": filename}
+    except Exception as e:
+        logger.exception("[Snapshot] Failed to save photo")
+        raise HTTPException(status_code=500, detail=f"Snapshot failed: {e}")
+
+# --- Independent Video Recording ---
+
+@app.post("/api/video/start")
+def start_video_recording():
+    """Start video recording independently (without starting RC flight recorder)."""
+    global is_video_recording, video_recorder_thread, video_file_path
+    if not controller.is_connected:
+        raise HTTPException(status_code=400, detail="Drone not connected")
+    if is_video_recording:
+        return {"status": "already_recording", "path": video_file_path}
+    is_video_recording = True
+    os.makedirs(MEDIA_DIR, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    video_file_path = os.path.join(MEDIA_DIR, f"video_{timestamp}.mp4")
+    video_recorder_thread = threading.Thread(target=video_recorder_loop, args=(video_file_path,), daemon=True)
+    video_recorder_thread.start()
+    logger.info(f"[Video] Recording started: {video_file_path}")
+    return {"status": "recording", "path": video_file_path}
+
+@app.post("/api/video/stop")
+def stop_video_recording():
+    """Stop video recording."""
+    global is_video_recording, video_recorder_thread, video_file_path
+    if not is_video_recording:
+        return {"status": "not_recording"}
+    is_video_recording = False
+    if video_recorder_thread is not None:
+        video_recorder_thread.join(timeout=3.0)
+        video_recorder_thread = None
+    saved_path = video_file_path
+    logger.info(f"[Video] Recording stopped: {saved_path}")
+    return {"status": "stopped", "path": saved_path}
+
+@app.get("/api/video/status")
+def video_recording_status():
+    return {"is_recording": is_video_recording, "path": video_file_path}
+
 # --- Flight Recorder ---
 
 @app.post("/api/recorder/start")
 def start_recording():
+    """Start RC flight path recording only (video is controlled separately via /api/video/start)."""
     if not controller.is_connected:
         raise HTTPException(status_code=400, detail="Drone not connected")
     recorder.start_recording()
-    
-    # Start video recording
-    global is_video_recording, video_recorder_thread, video_file_path
-    if not is_video_recording:
-        is_video_recording = True
-        media_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flight_data")
-        os.makedirs(media_dir, exist_ok=True)
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        video_file_path = os.path.join(media_dir, f"video_{timestamp}.mp4")
-        video_recorder_thread = threading.Thread(target=video_recorder_loop, args=(video_file_path,))
-        video_recorder_thread.daemon = True
-        video_recorder_thread.start()
-        logger.info(f"Started video recording thread to {video_file_path}")
-        
     return {"status": "success", "recording": True}
 
 @app.post("/api/recorder/stop")
 def stop_recording():
+    """Stop RC flight path recording only."""
     path = recorder.stop_recording()
-    
-    # Stop video recording
-    global is_video_recording, video_recorder_thread, video_file_path
-    if is_video_recording:
-        is_video_recording = False
-        if video_recorder_thread is not None:
-            video_recorder_thread.join(timeout=3.0)
-            video_recorder_thread = None
-        logger.info("Stopped video recording thread")
-        
-    return {"status": "success", "path": path, "video_path": video_file_path}
+    return {"status": "success", "path": path}
 
 @app.get("/api/recorder/status")
 def recorder_status():
@@ -624,19 +856,71 @@ def list_recordings():
 class ReplayRequest(BaseModel):
     path: str
 
+def replay_worker_loop():
+    global is_replay_running
+    logger.info("Replay worker thread started")
+    recorder.start_replay()
+    
+    while is_replay_running and recorder.is_replaying:
+        loop_start = time.time()
+        
+        if not controller.is_connected or not controller.tello:
+            logger.warning("[Replay] Drone disconnected, aborting replay")
+            break
+            
+        event = recorder.get_replay_event()
+        if event:
+            logger.info(f"[Replay] Triggering event: {event}")
+            try:
+                if event == "takeoff":
+                    controller.takeoff()
+                    telemetry.notify_takeoff()
+                elif event == "land":
+                    controller.land()
+                    telemetry.notify_land()
+            except Exception as e:
+                logger.error(f"[Replay] Event {event} failed: {e}")
+                
+        rc = recorder.get_replay_rc()
+        if rc:
+            lr, fb, ud, yv = rc
+            controller.send_rc_control(lr, fb, ud, yv)
+        else:
+            break
+            
+        elapsed = time.time() - loop_start
+        sleep_time = max(0.01, 0.05 - elapsed)
+        time.sleep(sleep_time)
+        
+    logger.info("Replay worker thread finished")
+    is_replay_running = False
+    recorder.stop_replay()
+    if controller.is_connected:
+        controller.send_stop()
+
 @app.post("/api/recorder/replay")
 def start_replay(req: ReplayRequest):
+    global is_replay_running, replay_thread
     if not controller.is_connected:
         raise HTTPException(status_code=400, detail="Drone not connected")
+        
+    stop_replay_session("new replay requested", join=True)
+    
+    if autopilot.active:
+        autopilot.disengage()
+        
     loaded = recorder.load_recording(req.path)
     if not loaded:
         raise HTTPException(status_code=404, detail="Recording not found")
-    recorder.start_replay()
+        
+    is_replay_running = True
+    replay_thread = threading.Thread(target=replay_worker_loop, daemon=True)
+    replay_thread.start()
     return {"status": "success"}
 
 @app.post("/api/recorder/replay/stop")
 def stop_replay():
-    recorder.stop_replay()
+    stop_replay_session("manual stop", join=False)
     return {"status": "success"}
 
 @app.post("/api/autopilot/toggle")

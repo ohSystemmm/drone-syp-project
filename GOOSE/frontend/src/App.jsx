@@ -12,6 +12,7 @@ function App() {
     battery: 0, height: 0, speed_x: 0, speed_y: 0, speed_z: 0, speed: 0,
     pitch: 0, roll: 0, yaw: 0, temperature: 0, flight_duration: 0, total_distance: 0,
     autopilot_active: false, autopilot_phase: 'OFF',
+    pos_x: 0.0, pos_y: 0.0, flight_path: [],
   })
   const [serverOnline, setServerOnline] = useState(true)
 
@@ -28,7 +29,7 @@ function App() {
       } catch {
         setServerOnline(false)
       }
-    }, 1000)
+    }, 250)
     return () => clearInterval(poll)
   }, [])
 
@@ -78,7 +79,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard telemetry={telemetry} />} />
             <Route path="/led" element={<LEDManager />} />
-            <Route path="/media" element={<MediaGallery />} />
+            <Route path="/media" element={<MediaGallery telemetry={telemetry} />} />
             <Route path="/settings" element={<SettingsPage telemetry={telemetry} />} />
           </Routes>
         </div>

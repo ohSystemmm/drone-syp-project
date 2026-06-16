@@ -25,6 +25,8 @@ class DroneController:
         self._watchdog_thread = None
         self._last_successful_ping = 0
         self.on_connection_lost = None  # callback: fn() called on disconnect
+        self.connection_state = "disconnected"
+        self._lifecycle_lock = threading.RLock()
 
     def _restart_video_stream(self, reason="manual"):
         """Safely restart video stream and recreate frame reader without UDP port collisions."""
@@ -82,74 +84,113 @@ class DroneController:
 
     def connect(self, host="192.168.10.1", port=8889):
         """Connects to the Tello drone and starts video stream."""
-        self.is_connected = False
-        self._is_flying_manual = False
-        self._has_taken_off = False
-        self._stream_stall_since = None  # Track stream stalls for recovery
-        try:
-            print(f"Connecting to Tello at {host}...")
-            logger.info("[Drone] Connecting to %s:%s", host, port)
-            self.tello = Tello(host=host)
-            
-            # Important: Set a longer timeout for slow Wi-Fi
-            self.tello.RESPONSE_TIMEOUT = 10.0
-            
-            self.tello.connect()
-            print(f"Connected to {host}. Battery: {self.tello.get_battery()}%")
-            logger.info("[Drone] Connected. Battery=%s%%", self.tello.get_battery())
-            
-            # Configure video for reliability before starting stream
-            print("Initializing video stream...")
-            self.tello.streamoff()
-            time.sleep(0.5)
+        with self._lifecycle_lock:
+            if self.is_connected and self.tello:
+                logger.info("[Drone] Already connected, skipping connect()")
+                return True
+            if self.connection_state == "connecting":
+                logger.info("[Drone] Connection attempt already in progress, skipping")
+                return False
 
-            # Set resolution and FPS BEFORE streamon for consistent behavior
-            self.tello.set_video_resolution(Tello.RESOLUTION_720P)
-            # 30 FPS ensures PyAV gets enough frames to start decoding without throwing ExitError
-            self.tello.set_video_fps(Tello.FPS_30)
-            # Bitrate fallback: some firmware/AP combos reject specific bitrate commands.
-            bitrate_set = False
-            for bitrate in (Tello.BITRATE_3MBPS, Tello.BITRATE_2MBPS, Tello.BITRATE_1MBPS):
-                try:
-                    self.tello.set_video_bitrate(bitrate)
-                    bitrate_set = True
-                    logger.info("[Drone] Video bitrate set to %s", bitrate)
-                    break
-                except BaseException:
-                    logger.debug("[Drone] Video bitrate command failed for %s", bitrate)
-                    continue
-            if not bitrate_set:
-                print("[Drone] Warning: Could not set requested video bitrate; using drone default.")
-
-            self.tello.streamon()
-            
-            self.frame_reader = self.tello.get_frame_read()
-            
-            # Wait for first frame to verify stream
-            for _ in range(20):
-                if self.frame_reader.frame is not None:
-                    print("Video stream ready.")
-                    logger.info("[Drone] Video stream ready")
-                    self.is_connected = True
-                    self._start_watchdog()
-                    return True
-                time.sleep(0.2)
-            
-            print("Warning: Connected but video stream timed out.")
-            logger.warning("[Drone] Connected but video stream timed out")
-            self.is_connected = True
-            self._start_watchdog()
-            return True
-                
-        except BaseException as e:
-            if "Command 'command' was unsuccessful" in str(e):
-                logger.error("[Drone] Connection failed: Drone not found or not in SDK mode (No response to 'command')")
-            else:
-                logger.exception("[Drone] Connection failed")
-            
             self.is_connected = False
-            self.tello = None # Clear stale object
-            return False
+            self.connection_state = "connecting"
+            self._is_flying_manual = False
+            self._has_taken_off = False
+            self._stream_stall_since = None  # Track stream stalls for recovery
+            
+            try:
+                print(f"Connecting to Tello at {host}...")
+                logger.info("[Drone] Connecting to %s:%s", host, port)
+                self.tello = Tello(host=host)
+                
+                # Important: Set a longer timeout for slow Wi-Fi
+                self.tello.RESPONSE_TIMEOUT = 10.0
+                
+                self.tello.connect()
+                print(f"Connected to {host}. Battery: {self.tello.get_battery()}%")
+                logger.info("[Drone] Connected. Battery=%s%%", self.tello.get_battery())
+                
+                # Configure video for reliability before starting stream
+                print("Initializing video stream...")
+                self.tello.streamoff()
+                time.sleep(0.5)
+
+                # Set resolution and FPS BEFORE streamon for consistent behavior
+                self.tello.set_video_resolution(Tello.RESOLUTION_720P)
+                # 30 FPS ensures PyAV gets enough frames to start decoding without throwing ExitError
+                self.tello.set_video_fps(Tello.FPS_30)
+                # Bitrate fallback: some firmware/AP combos reject specific bitrate commands.
+                bitrate_set = False
+                for bitrate in (Tello.BITRATE_3MBPS, Tello.BITRATE_2MBPS, Tello.BITRATE_1MBPS):
+                    try:
+                        self.tello.set_video_bitrate(bitrate)
+                        bitrate_set = True
+                        logger.info("[Drone] Video bitrate set to %s", bitrate)
+                        break
+                    except BaseException:
+                        logger.debug("[Drone] Video bitrate command failed for %s", bitrate)
+                        continue
+                if not bitrate_set:
+                    print("[Drone] Warning: Could not set requested video bitrate; using drone default.")
+
+                self.tello.streamon()
+                
+                self.frame_reader = self.tello.get_frame_read()
+                
+                # Wait for first frame to verify stream
+                for _ in range(20):
+                    if self.frame_reader.frame is not None:
+                        print("Video stream ready.")
+                        logger.info("[Drone] Video stream ready")
+                        self.is_connected = True
+                        self.connection_state = "connected"
+                        self._start_watchdog()
+                        return True
+                    time.sleep(0.2)
+                
+                print("Warning: Connected but video stream timed out.")
+                logger.warning("[Drone] Connected but video stream timed out")
+                self.is_connected = True
+                self.connection_state = "connected"
+                self._start_watchdog()
+                return True
+                    
+            except BaseException as e:
+                if "Command 'command' was unsuccessful" in str(e):
+                    logger.error("[Drone] Connection failed: Drone not found or not in SDK mode (No response to 'command')")
+                else:
+                    logger.exception("[Drone] Connection failed")
+
+                # --- UDP socket cleanup ---
+                # If get_frame_read() threw WSAEADDRINUSE (errno 10048), the
+                # BackgroundFrameRead object may have been partially constructed and
+                # its PyAV container is holding port 11111 open.  We must stop it
+                # here so the OS can release the socket before the next connect attempt.
+                if self.frame_reader is not None:
+                    try:
+                        self.frame_reader.stop()
+                    except BaseException:
+                        pass
+                    self.frame_reader = None
+
+                if self.tello is not None:
+                    try:
+                        self.tello.streamoff()
+                    except BaseException:
+                        pass
+                    try:
+                        self.tello.end()
+                    except BaseException:
+                        pass
+                    self.tello = None
+
+                # Give Windows time to fully release UDP port 11111
+                time.sleep(1.5)
+
+                self.is_connected = False
+                self.connection_state = "error"
+                return False
+
 
     def _start_watchdog(self):
         """Start background watchdog that pings the drone periodically."""
@@ -200,31 +241,38 @@ class DroneController:
 
     def disconnect(self):
         """Stops video stream and disconnects."""
-        try:
-            if self.frame_reader:
-                try:
-                    self.frame_reader.stop()
-                except BaseException:
-                    pass
-            if self.tello:
-                try:
-                    self.tello.streamoff()
-                except BaseException:
-                    pass
-                if hasattr(self.tello, "is_flying"):
-                    self.tello.is_flying = False
-                try:
-                    self.tello.end()
-                except BaseException:
-                    pass
-        except Exception as e:
-            print(f"Disconnect error: {e}")
-            logger.exception("[Drone] Disconnect error")
-        finally:
-            self.is_connected = False
-            self.frame_reader = None
-            self._is_flying_manual = False
-            self._has_taken_off = False
+        with self._lifecycle_lock:
+            self._stop_watchdog()
+            try:
+                if self.frame_reader:
+                    try:
+                        self.frame_reader.stop()
+                    except BaseException:
+                        pass
+                if self.tello:
+                    try:
+                        self.tello.streamoff()
+                    except BaseException:
+                        pass
+                    if hasattr(self.tello, "is_flying"):
+                        self.tello.is_flying = False
+                    try:
+                        self.tello.end()
+                    except BaseException:
+                        pass
+                    # Give Windows time to release UDP port 11111 before any reconnect
+                    time.sleep(1.0)
+            except Exception as e:
+                print(f"Disconnect error: {e}")
+                logger.exception("[Drone] Disconnect error")
+            finally:
+                self.is_connected = False
+                self.connection_state = "disconnected"
+                self.frame_reader = None
+                self.tello = None  # Must null out so connect() creates a fresh object
+                self._is_flying_manual = False
+                self._has_taken_off = False
+
 
     def emergency(self):
         """Immediate motor cutoff (Kill Switch)."""
@@ -326,6 +374,21 @@ class DroneController:
                     logger.debug("[Drone] RC sent lr=%d fb=%d ud=%d yv=%d", lr, fb, ud, yv)
             except BaseException:
                 pass
+
+    def send_stop(self):
+        """
+        Unconditionally sends a full-stop RC command (0,0,0,0), bypassing
+        the throttle deduplication so it always reaches the drone immediately.
+        """
+        if not (self.is_connected and self.tello):
+            return
+        try:
+            self.tello.send_rc_control(0, 0, 0, 0)
+            self._last_rc_values = (0, 0, 0, 0)
+            self._last_rc_time = time.time()
+            logger.debug("[Drone] Emergency stop sent (0,0,0,0)")
+        except BaseException:
+            pass
 
     def get_frame(self):
         """
