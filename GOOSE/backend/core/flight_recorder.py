@@ -193,11 +193,16 @@ class FlightRecorder:
     def load_recording(self, path: str) -> bool:
         """Load a specific recording file."""
         try:
-            with open(path, 'r') as f:
+            root = os.path.abspath(self.recordings_dir)
+            target = os.path.abspath(path)
+            if os.path.commonpath([root, target]) != root:
+                logger.warning("[FlightRecorder] Rejected recording outside root: %s", path)
+                return False
+            with open(target, 'r') as f:
                 self._replay_data = json.load(f)
-            self._replay_path = path
+            self._replay_path = target
             logger.info("[FlightRecorder] Loaded recording: %s (%.1fs, %d cmds)",
-                        path,
+                        target,
                         self._replay_data.get("duration_s", 0),
                         len(self._replay_data.get("rc_commands", [])))
             return True

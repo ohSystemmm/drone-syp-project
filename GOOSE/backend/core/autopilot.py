@@ -97,26 +97,31 @@ class AutoPilot:
     ALIGN_ANGLE_TOL = 45.0          # Max acceptable tilt angle (reduced from 70° to ensure ring is upright)
     ALIGN_HOLD_TIME = 0.3           # Seconds target must stay aligned (lowered to 0.3 to avoid stuck in ALIGN on frame drops)
     ALIGN_MIN_CONF = 0.25           # Minimum confidence to proceed with alignment (safety threshold)
+    ALIGN_BBOX_X_TOL = 50.0         # X error tolerance in pixels for bbox alignment
+    ALIGN_BBOX_Y_TOL = 50.0         # Y error tolerance in pixels for bbox alignment
 
     # APPROACH: closing the distance
-    APPROACH_SPEED = 80             # Forward speed at max distance
-    APPROACH_MIN_SPEED = 20         # Forward speed at min distance
+    APPROACH_SPEED = 45             # Forward speed at max distance
+    APPROACH_MIN_SPEED = 14         # Forward speed at min distance
     APPROACH_TIMEOUT = 10.0         # Seconds before giving up and re-aligning (increased to give more time)
     APPROACH_RECENTER_XY = 40.0     # XY error that triggers re-align (relaxed from 30cm)
     APPROACH_RECENTER_TIME = 1.5    # Seconds of bad centering before reset (increased from 0.4s)
-    APPROACH_DRIFT_MIN_FB = 12      # Minimum forward speed to maintain progress even when off-center
+    APPROACH_DRIFT_MIN_FB = 8       # Minimum forward speed while correcting drift
 
     # PUNCH: final burst
     PUNCH_DISTANCE = 80.0           # Z below which we commit to punch
-    PUNCH_SPEED = 100               # Forward speed during punch
+    PUNCH_SPEED = 80                # Forward speed during punch
     PUNCH_DURATION = 2.5            # Seconds of forward push
     PUNCH_CONF_MIN = 0.35           # Min confidence to enter punch (lowered to 0.35 to match tracking minimum)
     PUNCH_LOCK_TIME = 0.5           # Seconds of lock before punch triggers (increased from 0.2 for stability)
+    PUNCH_BBOX_RATIO_THRESHOLD = 0.25  # Bbox area ratio to commit to punch
 
     # APPROACH vertical control (preventing 1-meter dive when ring fills frame)
     APPROACH_Y_DEADZONE = 6.0       # Tight deadzone for vertical during approach
     Y_ERROR_MAX = 50.0               # Cap on Y error to prevent extreme commands from miscalibration
     RING_FILL_THRESHOLD = 0.65       # bbox_ratio > this = ring fills frame, freeze vertical
+    BBOX_TARGET_Y_RATIO = 0.39       # Forward camera tilt target as frame-height ratio
+    BBOX_PUNCH_CENTER_TOL = 0.18     # Normalized XY tolerance before punch lock
 
     # General control
     MAX_SPEED = 80                  # Global PID output limit
@@ -139,7 +144,10 @@ class AutoPilot:
 
     # Search behavior
     SEARCH_DELAY = 1.5              # Seconds before starting yaw search
-    SEARCH_YAW_SPEED = 15           # Yaw speed during search
+    SEARCH_YAW_SPEED = 14           # Yaw speed during search
+    LOST_HOLD_TIME = 0.4
+    LOST_RESET_TIME = 1.2
+    SEARCH_SWEEP_INTERVAL = 2.0
 
     # Camera tilt compensation — Tello camera points downward at ~11°.
     # The ring must appear in the upper ~25-40% of frame to be at the drone's
@@ -164,11 +172,20 @@ class AutoPilot:
         self._recenter_since = None
         self._no_track_since = None
         self._center_stable_since = None      # Downward camera centering stability
+        self._center_started_at = None
+        self._center_lock_since = None
         self._descent_start_time = None       # Descent phase timer
+        self._descent_lost_since = None
 
         # Last outputs (used for punch decay)
         self._last_lr = 0
+        self._last_fb = 0
         self._last_ud = 0
+        self._last_yv = 0
+        self._last_cmd = (0, 0, 0, 0)
+        self._last_seen_x_norm = 0.0
+        self._search_direction = 1
+        self._search_started_at = None
 
         # Logging throttle
         self._last_log_time = 0.0
@@ -200,9 +217,13 @@ class AutoPilot:
         """Engage downward camera autopilot (CENTER phase only, for manual positioning)."""
         self.active = True
         self.phase = PHASE_CENTER
+        now = time.monotonic()
         self._center_stable_since = None
+        self._center_started_at = now
+        self._center_lock_since = None
         self._descent_start_time = None
-        self._last_pose_time = time.monotonic()
+        self._descent_lost_since = None
+        self._last_pose_time = now
         self._no_track_since = None
         print("[AutoPilot] ENGAGED DOWNWARD — Phase: CENTER (ring centering)")
         logger.info("[AutoPilot] ENGAGED DOWNWARD")
@@ -215,7 +236,7 @@ class AutoPilot:
             print("[AutoPilot] DISENGAGED (manual override)")
             logger.info("[AutoPilot] DISENGAGED (manual override)")
 
-    def compute(self, pose, bbox_center=None, bbox_ratio=None):
+    def compute(self, pose, bbox_center=None, bbox_ratio=None, frame_size=None):
         """
         Main entry point.  Returns (lr, fb, ud, yv) RC command tuple.
         Called once per new frame from the main loop.
@@ -224,16 +245,17 @@ class AutoPilot:
             return 0, 0, 0, 0
 
         now = time.monotonic()
+        frame_size = self._normalize_frame_size(frame_size)
 
         # PUNCH, CENTER, DESCENT run open-loop or with limited pose requirements
         if self.phase == PHASE_PUNCH:
-            return self._compute_punch(now)
+            return self._remember_command(self._compute_punch(now))
 
         if self.phase == PHASE_CENTER:
-            return self._compute_center(pose, now, bbox_center)
+            return self._remember_command(self._compute_center(pose, now, bbox_center, frame_size))
 
         if self.phase == PHASE_DESCENT:
-            return self._compute_descent(pose, now)
+            return self._remember_command(self._compute_descent(pose, now, bbox_center, frame_size))
 
         if self.phase == PHASE_DONE:
             return 0, 0, 0, 0
@@ -242,7 +264,7 @@ class AutoPilot:
         if pose is not None:
             usable, reason = self._is_pose_usable(pose)
             if not usable:
-                pose = None  # Fall through to no-tracking path
+                pose = None  # Fall through to bbox/no-tracking path
 
         # --- Pose/bbox cross-check ---
         if pose is not None and bbox_center is not None:
@@ -254,13 +276,25 @@ class AutoPilot:
                         "[AutoPilot] Pose/bbox disagree: bbox_cx=%d vs pose_x=%.1f — bbox fallback",
                         bbox_center[0], pose.x_cm,
                     )
-                    return self._compute_bbox_fallback(bbox_center)
+                    pose = None
 
-        # --- No usable pose ---
+        # --- BBox control path when no pose ---
         if pose is None:
-            if bbox_center is not None and self.phase == PHASE_ALIGN:
-                return self._compute_bbox_fallback(bbox_center)
-            return self._handle_no_tracking(now)
+            if bbox_center is not None:
+                self._last_pose_time = now
+                self._no_track_since = None
+
+                if self.phase == PHASE_ALIGN:
+                    cmd = self._compute_bbox_align(bbox_center, now, frame_size)
+                elif self.phase == PHASE_APPROACH:
+                    cmd = self._compute_bbox_approach(bbox_center, bbox_ratio, now, frame_size)
+                else:
+                    cmd = (0, 0, 0, 0)
+
+                self._log_state(None, cmd, now, bbox_center=bbox_center, bbox_ratio=bbox_ratio)
+                return self._remember_command(cmd)
+            else:
+                return self._remember_command(self._handle_no_tracking(now))
 
         # --- We have a valid pose ---
         self._last_pose_time = now
@@ -273,8 +307,8 @@ class AutoPilot:
         else:
             cmd = (0, 0, 0, 0)
 
-        self._log_state(pose, cmd, now)
-        return cmd
+        self._log_state(pose, cmd, now, bbox_center=bbox_center, bbox_ratio=bbox_ratio)
+        return self._remember_command(cmd)
 
     # --- Phase: ALIGN ---
 
@@ -425,18 +459,18 @@ class AutoPilot:
 
     # --- Phase: CENTER (Downward camera fine centering) ---
 
-    def _compute_center(self, pose, now, bbox_center):
+    def _compute_center(self, pose, now, bbox_center, frame_size):
         """
         Fine horizontal centering using downward camera (320x240).
         Ring center must reach frame center (160, 120).
 
         bbox_center is in downward camera coordinates.
         """
-        if self._center_stable_since is None and pose is not None:
-            self._center_stable_since = now
+        if self._center_started_at is None:
+            self._center_started_at = now
 
         # Timeout: abort if taking too long
-        if self._center_stable_since is not None and (now - self._center_stable_since) >= self.CENTER_TIMEOUT:
+        if (now - self._center_started_at) >= self.CENTER_TIMEOUT:
             logger.warning("[AutoPilot] CENTER timeout -> back to APPROACH")
             self._reset_to_align()
             return 0, 0, 0, 0
@@ -444,11 +478,14 @@ class AutoPilot:
         # No detection in downward frame: search
         if bbox_center is None:
             logger.debug("[AutoPilot|CENTER] Ring not visible in downward camera - searching")
-            return 0, 20, 0, 0  # Move forward slowly to find it
+            self._center_lock_since = None
+            self._center_stable_since = None
+            return 0, 0, 0, 0
 
         # Ring detected: center it
         cx, cy = bbox_center
-        frame_cx, frame_cy = 160, 120  # Downward frame center (320x240)
+        frame_w, frame_h = frame_size
+        frame_cx, frame_cy = frame_w * 0.5, frame_h * 0.5
 
         x_err = cx - frame_cx
         y_err = cy - frame_cy
@@ -466,24 +503,27 @@ class AutoPilot:
         fb = max(-self.CENTER_MAX_STRAFE, min(self.CENTER_MAX_STRAFE, fb))
 
         if abs(x_err) <= self.CENTER_X_TOL and abs(y_err) <= self.CENTER_Y_TOL:
-            if self._center_stable_since is None:
+            if self._center_lock_since is None:
+                self._center_lock_since = now
                 self._center_stable_since = now
                 logger.debug("[AutoPilot|CENTER] Ring centered! Waiting for stability...")
-            elif (now - self._center_stable_since) >= self.CENTER_HOLD_TIME:
+            elif (now - self._center_lock_since) >= self.CENTER_HOLD_TIME:
                 # Ring has been centered long enough — transition to DESCENT
                 self.phase = PHASE_DESCENT
                 self._descent_start_time = now
+                self._descent_lost_since = None
                 logger.info("[AutoPilot] CENTER -> DESCENT (ring centered, now descending)")
                 return 0, 0, 0, 0
         else:
-            self._center_stable_since = now  # Reset timer if we drift
+            self._center_lock_since = None
+            self._center_stable_since = None
 
         logger.debug("[AutoPilot|CENTER] x_err=%.1f y_err=%.1f -> lr=%d fb=%d", x_err, y_err, lr, fb)
         return lr, fb, 0, 0
 
     # --- Phase: DESCENT (Downward camera vertical drop) ---
 
-    def _compute_descent(self, pose, now):
+    def _compute_descent(self, pose, now, bbox_center=None, frame_size=None):
         """
         Vertical descent through the ring using downward camera.
         Move down at constant speed, maintain horizontal centering.
@@ -499,12 +539,26 @@ class AutoPilot:
             logger.info("[AutoPilot] DESCENT complete -> DONE")
             return 0, 0, 0, 0
 
-        # Constant downward velocity
-        ud = int(self.DESCENT_SPEED)
+        if bbox_center is None:
+            if self._descent_lost_since is None:
+                self._descent_lost_since = now
+            if (now - self._descent_lost_since) > 0.5:
+                logger.warning("[AutoPilot] DESCENT target lost -> holding")
+                return 0, 0, 0, 0
+            lr, fb = 0, 0
+        else:
+            self._descent_lost_since = None
+            frame_w, frame_h = self._normalize_frame_size(frame_size, default=(320, 240))
+            cx, cy = bbox_center
+            x_err = cx - (frame_w * 0.5)
+            y_err = cy - (frame_h * 0.5)
+            lr = -int(self._apply_deadzone(x_err, self.CENTER_X_TOL * 0.6) * 0.25)
+            fb = -int(self._apply_deadzone(y_err, self.CENTER_Y_TOL * 0.6) * 0.25)
+            lr = max(-12, min(12, lr))
+            fb = max(-12, min(12, fb))
 
-        # Small horizontal corrections if ring drifts (optional)
-        # For now, just descend straight
-        lr, fb = 0, 0
+        # Constant downward velocity while tracking is present/recent
+        ud = int(self.DESCENT_SPEED)
 
         logger.debug("[AutoPilot|DESCENT] elapsed=%.2f / %.2f -> ud=%d", elapsed, self.DESCENT_DURATION, ud)
         return lr, fb, ud, 0
@@ -553,6 +607,118 @@ class AutoPilot:
         )
         return lr, fb, ud, yv
 
+    def _compute_bbox_align(self, bbox_center, now, frame_size):
+        err_x, err_y, norm_x, norm_y = self._bbox_error(bbox_center, frame_size)
+        self._last_seen_x_norm = norm_x
+
+        lr = self._apply_min_speed(int(norm_x * 35))
+        ud_raw = self._apply_min_speed(int(-norm_y * 35))
+        fb = 0
+
+        # Yaw tracks X error to face the target
+        # Decouple: if large X error, use yaw only (no strafe) to avoid oscillation
+        if abs(norm_x) > 0.16:
+            yv = self._apply_min_speed(int(norm_x * 45))
+            lr = 0  # Let yaw handle it
+        else:
+            yv = 0
+            self.pid_yaw.reset()
+
+        lr, fb, ud, yv = self._smooth_command((lr, fb, ud_raw, yv), deltas=(8, 10, 8, 8))
+
+        # Check alignment
+        aligned = (
+            abs(norm_x) < 0.11
+            and abs(norm_y) < 0.14
+        )
+
+        if aligned:
+            if self._align_stable_since is None:
+                self._align_stable_since = now
+            elif (now - self._align_stable_since) >= self.ALIGN_HOLD_TIME:
+                self._transition_to_approach()
+        else:
+            self._align_stable_since = None
+
+        self._last_lr = lr
+        self._last_ud = ud
+        return lr, fb, ud, yv
+
+    def _compute_bbox_approach(self, bbox_center, bbox_ratio, now, frame_size):
+        if self._approach_start_time is None:
+            self._approach_start_time = now
+
+        # Estimate forward speed based on bbox_ratio (ratio_min=0.05, ratio_max=0.40)
+        ratio_min = 0.05
+        ratio_max = 0.40
+        if bbox_ratio is not None:
+            ratio_val = max(ratio_min, min(ratio_max, bbox_ratio))
+            dist_frac = 1.0 - (ratio_val - ratio_min) / (ratio_max - ratio_min)
+        else:
+            dist_frac = 0.5  # Fallback
+            
+        fb = int(self.APPROACH_MIN_SPEED + (self.APPROACH_SPEED - self.APPROACH_MIN_SPEED) * dist_frac)
+
+        # XY correction
+        err_x, err_y, norm_x, norm_y = self._bbox_error(bbox_center, frame_size)
+        self._last_seen_x_norm = norm_x
+
+        lr = self._apply_min_speed(int(norm_x * 42))
+        yv = self._apply_min_speed(int(norm_x * 28))
+
+        # Altitude control with ring-fill detection
+        ring_is_large = bbox_ratio is not None and bbox_ratio > self.RING_FILL_THRESHOLD
+        if ring_is_large:
+            ud = 0
+            logger.debug("[AutoPilot|APPROACH] Ring is large (ratio=%.2f) → freezing UD", bbox_ratio)
+        else:
+            ud = self._apply_min_speed(int(-norm_y * 32))
+
+        # Slow down continuously when off-center.
+        center_err = min(1.0, math.hypot(norm_x / 0.45, norm_y / 0.45))
+        center_quality = 1.0 - center_err
+        fb = int(fb * max(0.25, center_quality))
+        if fb > 0:
+            fb = max(self.APPROACH_DRIFT_MIN_FB, fb)
+
+        lr, fb, ud, yv = self._smooth_command((lr, fb, ud, yv), deltas=(8, 10, 6, 8))
+
+        self._last_lr = lr
+        self._last_fb = fb
+        self._last_ud = ud
+        self._last_yv = yv
+
+        # Re-center check
+        off_center = abs(norm_x) > 0.42 or abs(norm_y) > 0.42
+        if off_center:
+            if self._recenter_since is None:
+                self._recenter_since = now
+            elif (now - self._recenter_since) >= self.APPROACH_RECENTER_TIME:
+                logger.warning("[AutoPilot] Off-center for too long -> ALIGN (norm_x=%.2f norm_y=%.2f)", norm_x, norm_y)
+                self._reset_to_align()
+                return 0, 0, 0, 0
+        else:
+            self._recenter_since = None
+
+        # Approach timeout
+        if (now - self._approach_start_time) >= self.APPROACH_TIMEOUT:
+            logger.warning("[AutoPilot] APPROACH timeout -> ALIGN")
+            self._reset_to_align()
+            return 0, 0, 0, 0
+
+        # Punch lock
+        centered_for_punch = abs(norm_x) < self.BBOX_PUNCH_CENTER_TOL and abs(norm_y) < self.BBOX_PUNCH_CENTER_TOL
+        if bbox_ratio is not None and bbox_ratio >= self.PUNCH_BBOX_RATIO_THRESHOLD and centered_for_punch:
+            if self._punch_lock_since is None:
+                self._punch_lock_since = now
+            elif (now - self._punch_lock_since) >= self.PUNCH_LOCK_TIME:
+                self._transition_to_punch(now)
+                return 0, 0, 0, 0
+        else:
+            self._punch_lock_since = None
+
+        return lr, fb, ud, yv
+
     # --- No tracking / search ---
 
     def _handle_no_tracking(self, now):
@@ -567,7 +733,14 @@ class AutoPilot:
         time_lost = now - self._no_track_since
 
         # If tracking is lost during APPROACH, immediately reset to ALIGN
-        if self.phase == PHASE_APPROACH and time_lost >= self.TRACKING_TIMEOUT:
+        if time_lost < self.LOST_HOLD_TIME:
+            lr, fb, ud, yv = self._last_cmd
+            return int(lr * 0.5), int(fb * 0.35), int(ud * 0.5), int(yv * 0.5)
+
+        if self.phase == PHASE_APPROACH:
+            if time_lost < self.LOST_RESET_TIME:
+                direction = -1 if self._last_seen_x_norm < 0 else 1
+                return 0, 0, 0, direction * self.SEARCH_YAW_SPEED
             logger.warning("[AutoPilot] Tracking lost in APPROACH -> ALIGN")
             self._reset_to_align()
             return 0, 0, 0, 0
@@ -594,8 +767,12 @@ class AutoPilot:
 
     # --- Transitions ---
 
-    def _transition_to_punch(self, now, distance_cm):
-        print(f"[AutoPilot] Target Locked at {distance_cm:.0f}cm! -> PUNCH")
+    def _transition_to_punch(self, now, distance_cm=None):
+        if distance_cm is None:
+            distance_cm = 80.0
+            print("[AutoPilot] Target Locked via bbox! -> PUNCH")
+        else:
+            print(f"[AutoPilot] Target Locked at {distance_cm:.0f}cm! -> PUNCH")
         logger.info("[AutoPilot] %s -> PUNCH", self.phase)
         self.phase = PHASE_PUNCH
         self._punch_start_time = now
@@ -626,7 +803,10 @@ class AutoPilot:
         self._punch_lock_since = None
         self._recenter_since = None
         self._center_stable_since = None      # Reset downward camera timing
+        self._center_started_at = None
+        self._center_lock_since = None
         self._descent_start_time = None       # Reset descent timing
+        self._descent_lost_since = None
 
     def _restore_align_gains(self):
         self.pid_lr.set_gains(kp=0.6, ki=0.005, kd=0.5, output_limit=self.MAX_SPEED)
@@ -645,12 +825,62 @@ class AutoPilot:
         self._recenter_since = None
         self._no_track_since = None
         self._center_stable_since = None      # Reset downward camera timing
+        self._center_started_at = None
+        self._center_lock_since = None
         self._descent_start_time = None       # Reset descent timing
+        self._descent_lost_since = None
         self._last_lr = 0
+        self._last_fb = 0
         self._last_ud = 0
+        self._last_yv = 0
+        self._last_cmd = (0, 0, 0, 0)
+        self._last_seen_x_norm = 0.0
+        self._search_direction = 1
+        self._search_started_at = None
         self._last_log_time = 0.0
 
     # --- Utilities ---
+
+    def _normalize_frame_size(self, frame_size, default=(960, 720)):
+        if not frame_size:
+            return default
+        try:
+            w, h = frame_size
+            w = max(1, int(w))
+            h = max(1, int(h))
+            return w, h
+        except (TypeError, ValueError):
+            return default
+
+    def _bbox_error(self, bbox_center, frame_size):
+        frame_w, frame_h = self._normalize_frame_size(frame_size)
+        cx, cy = bbox_center
+        target_x = frame_w * 0.5
+        target_y = frame_h * self.BBOX_TARGET_Y_RATIO
+        err_x = float(cx) - target_x
+        err_y = float(cy) - target_y
+        norm_x = max(-1.0, min(1.0, err_x / max(frame_w * 0.5, 1.0)))
+        norm_y = max(-1.0, min(1.0, err_y / max(frame_h * 0.5, 1.0)))
+        return err_x, err_y, norm_x, norm_y
+
+    @staticmethod
+    def _slew(current, previous, max_delta):
+        return int(max(previous - max_delta, min(previous + max_delta, current)))
+
+    def _smooth_command(self, cmd, deltas=(8, 10, 8, 8)):
+        target = tuple(int(v) for v in cmd)
+        if target == (0, 0, 0, 0):
+            self._last_lr = self._last_fb = self._last_ud = self._last_yv = 0
+            return target
+
+        prev = (self._last_lr, self._last_fb, self._last_ud, self._last_yv)
+        smoothed = tuple(self._slew(cur, old, delta) for cur, old, delta in zip(target, prev, deltas))
+        self._last_lr, self._last_fb, self._last_ud, self._last_yv = smoothed
+        return smoothed
+
+    def _remember_command(self, cmd):
+        self._last_cmd = tuple(int(v) for v in cmd)
+        return self._last_cmd
 
     @staticmethod
     def _apply_deadzone(error, deadzone):
@@ -672,13 +902,20 @@ class AutoPilot:
             return self.MIN_SPEED if val_int > 0 else -self.MIN_SPEED
         return val_int
 
-    def _log_state(self, pose, cmd, now):
+    def _log_state(self, pose, cmd, now, bbox_center=None, bbox_ratio=None):
         if (now - self._last_log_time) < 0.5:
             return
         lr, fb, ud, yv = cmd
-        logger.info(
-            "[AutoPilot|%s] cmd=(%d,%d,%d,%d) pose=(x=%.1f y=%.1f z=%.1f a=%.1f c=%.2f)",
-            self.phase, lr, fb, ud, yv,
-            pose.x_cm, pose.y_cm, pose.z_cm, pose.angle_deg, pose.confidence,
-        )
+        if pose is not None:
+            logger.info(
+                "[AutoPilot|%s] cmd=(%d,%d,%d,%d) pose=(x=%.1f y=%.1f z=%.1f a=%.1f c=%.2f)",
+                self.phase, lr, fb, ud, yv,
+                pose.x_cm, pose.y_cm, pose.z_cm, pose.angle_deg, pose.confidence,
+            )
+        else:
+            logger.info(
+                "[AutoPilot|%s] cmd=(%d,%d,%d,%d) bbox=(center=%s ratio=%s)",
+                self.phase, lr, fb, ud, yv,
+                bbox_center, f"{bbox_ratio:.3f}" if bbox_ratio is not None else "None",
+            )
         self._last_log_time = now

@@ -154,3 +154,8 @@ __pycache__/
 
 # Example files
 recordings/
+
+# Models and temporary data
+backend/assets/models/
+backend/flight_data/
+scratch/
